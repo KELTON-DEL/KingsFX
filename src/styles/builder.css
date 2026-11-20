@@ -701,3 +701,166 @@
 .bb-status-dot.paused {
   background: #94a3b8;
 }
+/* Ensure only one pinned footer renders at the bottom of the Bot Builder */
+.bot-builder-shell > footer.bb-footer:not(:last-of-type) {
+  display: none !important;
+}
+
+.bot-builder-shell > footer.bb-footer {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+}
+/* ==========================================================================
+   Mobile & Tablet Responsive Rules (Phone Screen Fit)
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .bot-builder-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .bb-workspace {
+    flex-direction: column;
+    flex: 1 0 auto;
+    min-height: 0;
+  }
+
+  /* Left Sidebar stacks cleanly at top on mobile */
+  .bb-left-sidebar {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--bb-border);
+  }
+
+  .bb-blocks-list {
+    max-height: 190px;
+  }
+
+  /* Canvas scrolls horizontally inside its own container instead of stretching the phone screen */
+  .bb-canvas-area {
+    width: 100%;
+    min-height: 360px;
+    max-height: 62dvh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .bb-toolbar {
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    margin: 8px;
+    flex-wrap: wrap;
+    max-width: calc(100% - 16px);
+  }
+
+  .bb-canvas-stage {
+    padding: 12px 16px 72px 16px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .bb-canvas-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .bb-block-stack {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Right Summary / Transactions / Journal Panel stacks full width below canvas */
+  .bb-right-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--bb-border);
+  }
+
+  /* Trash bin sits cleanly without overlapping right panel or footer */
+  .bb-trash-bin {
+    position: static;
+    align-self: flex-end;
+    margin: 0 12px 12px auto;
+  }
+
+  /* Footer stays pinned at the bottom and never overflows horizontally */
+  .bb-footer {
+    position: sticky;
+    bottom: 0;
+    height: auto;
+    min-height: 48px;
+    padding: 8px 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .bb-footer-left {
+    display: none;
+  }
+
+  .bb-footer-center {
+    position: static;
+    transform: none;
+    justify-content: center;
+  }
+
+  .bb-footer-right {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bb-quick-strategy-btn {
+    margin: 8px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+
+  .bb-tool-btn {
+    width: 25px;
+    height: 25px;
+    font-size: 12px;
+  }
+
+  .bb-block {
+    padding: 7px 8px 9px;
+  }
+
+  .bb-field-row {
+    font-size: 10px;
+    gap: 4px;
+  }
+
+  .bb-pill-select,
+  .bb-pill-input {
+    max-width: 100%;
+    font-size: 10px;
+  }
+
+  .bb-contract-card {
+    padding: 9px 10px;
+  }
+
+  .bb-stats-3col {
+    gap: 4px;
+  }
+
+  .bb-run-stop-btn {
+    min-width: 86px;
+    height: 32px;
+    border-radius: 6px;
+  }
+}
