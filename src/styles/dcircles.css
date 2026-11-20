@@ -1,0 +1,282 @@
+/* Dcircles Multi-Index Matrix & Analysis Tools Layout */
+.kfx-dcircles-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.kfx-dcircles-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.kfx-dcircles-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(215px, 1fr));
+  gap: 12px;
+}
+
+.kfx-dc-card {
+  background: #FFFFFF;
+  border: 1px solid #DDE2EA;
+  border-radius: 10px;
+  padding: 10px 11px 11px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.kfx-dc-card:hover {
+  border-color: #94A3B8;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.kfx-dc-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.kfx-dc-market-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.kfx-dc-spot {
+  font-size: 11px;
+  font-weight: 800;
+  color: #059669;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.kfx-dc-badge-last {
+  font-size: 10px;
+  font-weight: 800;
+  color: #2563EB;
+  background: #EFF6FF;
+  border: 1px solid #DBEAFE;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* 5x2 Digit Circles Grid inside each Index Card */
+.kfx-dc-digits-matrix {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px 4px;
+  padding: 2px 0;
+}
+
+.kfx-dc-digit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.kfx-dc-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #D1D5DB;
+  background: #F9FAFB;
+  color: #1F2937;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
+  transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.kfx-dc-circle.is-current {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+}
+
+.kfx-dc-circle.tone-green {
+  background: #10B981;
+  border-color: #059669;
+  color: #FFFFFF;
+}
+
+.kfx-dc-circle.tone-red {
+  background: #EF4444;
+  border-color: #DC2626;
+  color: #FFFFFF;
+}
+
+.kfx-dc-circle.tone-blue {
+  background: #2563EB;
+  border-color: #1D4ED8;
+  color: #FFFFFF;
+}
+
+.kfx-dc-circle.tone-amber {
+  background: #F59E0B;
+  border-color: #D97706;
+  color: #FFFFFF;
+}
+
+.kfx-dc-circle.tone-outline-blue {
+  background: #FFFFFF;
+  border-color: #2563EB;
+  color: #111827;
+}
+
+.kfx-dc-circle.tone-outline-amber {
+  background: #FFFFFF;
+  border-color: #F59E0B;
+  color: #111827;
+}
+
+.kfx-dc-num {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.kfx-dc-pct {
+  font-size: 7.5px;
+  font-weight: 700;
+  opacity: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+
+.kfx-dc-pointer {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid #EF4444;
+  margin-top: 2px;
+}
+
+/* Recent 10-Digit Strip */
+.kfx-dc-strip {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 5px;
+  padding: 3px;
+}
+
+.kfx-dc-strip-cell {
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 0;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kfx-dc-strip-cell.is-even {
+  color: #047857;
+  background: #ECFDF5;
+}
+
+.kfx-dc-strip-cell.is-odd {
+  color: #B91C1C;
+  background: #FEF2F2;
+}
+
+/* 3 Dual-Split Horizontal Bars (Even/Odd, Rise/Fall, Over 4/Under 5) */
+.kfx-dc-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.kfx-dc-split-bar {
+  display: flex;
+  height: 17px;
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+  font-variant-numeric: tabular-nums;
+}
+
+.kfx-dc-seg-left {
+  background: #10B981;
+  display: flex;
+  align-items: center;
+  padding-left: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: width 0.25s ease;
+}
+
+.kfx-dc-seg-right {
+  background: #F05252;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: width 0.25s ease;
+}
+
+/* Right Log Drawer Download Button */
+.kfx-download-crimson {
+  background: #9B0D18;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.kfx-download-crimson:hover {
+  background: #7F0912;
+}
+
+.kfx-reset-crimson {
+  width: 100%;
+  padding: 8px;
+  border-radius: 5px;
+  border: none;
+  background: #9B0D18;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.kfx-reset-crimson:hover {
+  background: #7F0912;
+}
+
+@media (max-width: 1440px) {
+  .kfx-dcircles-grid {
+    grid-template-columns: repeat(4, minmax(210px, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .kfx-dcircles-grid {
+    grid-template-columns: repeat(2, minmax(210px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .kfx-dcircles-grid {
+    grid-template-columns: 1fr;
+  }
+}
