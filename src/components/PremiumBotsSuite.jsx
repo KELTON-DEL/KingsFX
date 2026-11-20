@@ -6,6 +6,7 @@ export default function PremiumBotsSuite({
   activeTab,
   botStates,
   onToggleBot,
+  onOpenInBuilder,
   onUpdateBotConfig,
   ticksByMarket,
   currency
@@ -76,6 +77,24 @@ export default function PremiumBotsSuite({
   const sampleMarket = SYNTHETIC_MARKETS[4];
   const latestDigit = ticksByMarket[sampleMarket.id]?.slice(-1)[0]?.digit ?? 7;
 
+  const handleBotCardClick = (bot) => {
+    const configPatch = {
+      baseStake: stake,
+      takeProfit,
+      stopLoss,
+      duration: ticks,
+      martingaleEnabled: martingaleOn,
+      recoveryMultiplier: multiplier,
+      safeMode
+    };
+    onUpdateBotConfig?.(bot.id, configPatch);
+    if (typeof onOpenInBuilder === 'function') {
+      onOpenInBuilder(bot);
+    } else {
+      onToggleBot?.(bot.id, configPatch);
+    }
+  };
+
   return (
     <section className="kfx-bots-page">
       <div className="kfx-pro-container">
@@ -126,6 +145,8 @@ export default function PremiumBotsSuite({
               <div
                 key={bot.id}
                 className={`kfx-bot-card ${state.running ? 'is-running' : ''}`}
+                onClick={() => handleBotCardClick(bot)}
+                style={{ cursor: 'pointer' }}
               >
                 <div>
                   <div className="kfx-bot-top">
@@ -198,20 +219,13 @@ export default function PremiumBotsSuite({
                       background: state.running ? '#DC2626' : (bot.accent || '#0D9488'),
                       color: '#FFFFFF'
                     }}
-                    onClick={() =>
-                      onToggleBot(bot.id, {
-                        baseStake: stake,
-                        takeProfit,
-                        stopLoss,
-                        duration: ticks,
-                        martingaleEnabled: martingaleOn,
-                        recoveryMultiplier: multiplier,
-                        safeMode
-                      })
-                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBotCardClick(bot);
+                    }}
                   >
-                    <span>{state.running ? 'Stop Bot' : 'Load & Run Bot'}</span>
-                    <span>{state.running ? '■' : '→'}</span>
+                    <span>{state.running ? 'Open & Stop in Builder' : 'Load in Bot Builder'}</span>
+                    <span>→</span>
                   </button>
                 </div>
               </div>

@@ -1,1196 +1,633 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { SYNTHETIC_MARKETS } from '../data/markets';
-import { NavIcon } from './Icons';
-import '../styles/builder.css';
+import React, { useMemo, useState } from "react";
+import FooterBar from "./FooterBar";
+import { useBotExecution } from "../hooks/useBotExecution";
+import "../styles/builder.css";
 
-const SIDEBAR_ITEMS = [
+const BLOCK_CATEGORIES = [
+  { id: "analysis-logics", label: "Analysis Logics🔥", expandable: false },
+  { id: "trade-parameters", label: "Trade parameters", expandable: false },
+  { id: "purchase-conditions", label: "Purchase conditions", expandable: false },
+  { id: "sell-conditions", label: "Sell conditions (optional)", expandable: false },
+  { id: "restart-conditions", label: "Restart trading conditions", expandable: false },
   {
-    id: 'analysis-logics',
-    label: 'Analysis Logics',
-    badgeIcon: 'quick-bot',
-    children: [
-      { id: 'al-1', name: 'Even/Odd 3-Tick Streak', targetBlock: 'trade-params', preset: { tradeType: 'Digits > Even/Odd', prediction: 2 } },
-      { id: 'al-2', name: 'Over/Under Digit Pressure', targetBlock: 'trade-params', preset: { tradeType: 'Digits > Over/Under', prediction: 9 } },
-      { id: 'al-3', name: 'Volatility Trend Confirmation', targetBlock: 'trade-params', preset: { tradeType: 'Up/Down > Rise/Fall' } }
-    ]
+    id: "analysis",
+    label: "Analysis",
+    expandable: true,
+    items: ["Indicators", "Tick and candle analysis", "Contract", "Stats"],
   },
   {
-    id: 'trade-parameters',
-    label: 'Trade parameters',
-    targetBlock: 'trade-params'
+    id: "utility",
+    label: "Utility",
+    expandable: true,
+    items: [
+      "Virtual Hook Switcher",
+      "Custom Notification",
+      "MkoreanWWN",
+      "Contract modifiers",
+      "Risk & Martingale settings",
+    ],
   },
-  {
-    id: 'purchase-conditions',
-    label: 'Purchase conditions',
-    targetBlock: 'purchase-cond'
-  },
-  {
-    id: 'sell-conditions',
-    label: 'Sell conditions (optional)',
-    targetBlock: 'sell-cond'
-  },
-  {
-    id: 'restart-conditions',
-    label: 'Restart trading conditions',
-    targetBlock: 'restart-cond'
-  },
-  {
-    id: 'analysis',
-    label: 'Analysis',
-    collapsible: true,
-    children: [
-      { id: 'an-1', name: 'Digit Frequency Scanner', action: 'open-analysis' },
-      { id: 'an-2', name: 'Tick & Candle Volatility', action: 'inspect-ticks' },
-      { id: 'an-3', name: 'Contract Win/Loss Ratio', action: 'focus-summary' },
-      { id: 'an-4', name: 'Session Drawdown Stats', action: 'focus-summary' }
-    ]
-  },
-  {
-    id: 'utility',
-    label: 'Utility',
-    collapsible: true,
-    children: [
-      { id: 'ut-1', name: 'Virtual Hook (VH) Guard', action: 'toggle-vh' },
-      { id: 'ut-2', name: 'Custom Signal Notification', action: 'log-notify' },
-      { id: 'ut-3', name: 'KingsFX Risk Lock', action: 'log-risk' },
-      { id: 'ut-4', name: 'Contract Modifiers', targetBlock: 'trade-params' },
-      { id: 'ut-5', name: 'Barrier & Digit Settings', targetBlock: 'trade-params' }
-    ]
-  },
-  {
-    id: 'vh-switcher',
-    label: 'Virtual Hook Switcher',
-    action: 'toggle-vh'
-  },
-  {
-    id: 'custom-notification',
-    label: 'Custom Notification',
-    action: 'log-notify'
-  },
-  {
-    id: 'kingsfx-brand',
-    label: 'KingsFX Engine',
-    action: 'focus-summary'
-  },
-  {
-    id: 'contract-modifiers',
-    label: 'Contract modifiers',
-    targetBlock: 'purchase-cond'
-  },
-  {
-    id: 'barrier-settings',
-    label: 'Barrier Settings',
-    targetBlock: 'trade-params'
-  }
 ];
 
-export default function BotBuilder({
-  logs = [],
-  onClearLogs = () => {},
-  onLogEvent = () => {},
-  onNavigate = () => {},
-  ticksByMarket = {},
-  currency = 'KSH',
-  isRunning = false,
-  onToggleRun = () => {}
-}) {
-  const safeLogs = Array.isArray(logs) ? logs : [];
-  const fileInputRef = useRef(null);
-
-  // Sidebar & Canvas UI State
-  const [activeSidebarId, setActiveSidebarId] = useState('trade-parameters');
+/**
+ * BotBuilder.jsx
+ * - Does NOT start automatically when opened (waits until Run is clicked in FooterBar).
+ * - Does NOT render a duplicate Run/Stop button inside the builder canvas;
+ *   FooterBar controls and communicates live execution state with the Bot Builder.
+ */
+export default function BotBuilder() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [blocksMenuOpen, setBlocksMenuOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState({
     analysis: true,
     utility: true,
-    'analysis-logics': false
   });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [highlightedBlock, setHighlightedBlock] = useState('trade-params');
+  const [rightTab, setRightTab] = useState("summary");
   const [zoom, setZoom] = useState(1);
-  const [rightTab, setRightTab] = useState('summary'); // 'summary' | 'transactions' | 'journal'
-  const [filterText, setFilterText] = useState('');
-  const [showFilter, setShowFilter] = useState(false);
 
-  // Block 1: Trade Parameters State
-  const [marketId, setMarketId] = useState('R_25');
-  const [alternateMarkets, setAlternateMarkets] = useState(false);
-  const [altRuns, setAltRuns] = useState(1);
-  const [autoScan, setAutoScan] = useState(false);
-  const [vhEnabled, setVhEnabled] = useState(false);
-  const [tradeType, setTradeType] = useState('Digits > Over/Under');
-  const [contractType, setContractType] = useState('Both');
-  const [candleInterval, setCandleInterval] = useState('1 minute');
-  const [restartOnError, setRestartOnError] = useState(false);
-  const [restartLastTradeOnError, setRestartLastTradeOnError] = useState(true);
+  const [market, setMarket] = useState("Volatility 10 (1s) Index");
+  const [tradeType, setTradeType] = useState("Over/Under");
+  const [contractType, setContractType] = useState("Under");
+  const [candleInterval, setCandleInterval] = useState("1 minute");
+  const [entryPointDigit, setEntryPointDigit] = useState("7");
+  const [stake, setStake] = useState("1");
+  const [expectedProfit, setExpectedProfit] = useState("100");
+  const [stopLoss, setStopLoss] = useState("1000");
+  const [martingaleSplit, setMartingaleSplit] = useState("2.55");
+  const [payoutPct, setPayoutPct] = useState("39");
+  const [predBeforeLoss, setPredBeforeLoss] = useState("9");
+  const [predAfterLoss, setPredAfterLoss] = useState("6");
 
-  const [initialStake, setInitialStake] = useState(0.5);
-  const [martingaleMult, setMartingaleMult] = useState(2);
-  const [currentStakeMode, setCurrentStakeMode] = useState('Initial Stake');
-  const [entryDigit, setEntryDigit] = useState(0);
-  const [entryArmed, setEntryArmed] = useState('true');
-  const [durationTicks, setDurationTicks] = useState(1);
-  const [stakeRef, setStakeRef] = useState('Current Stake');
-  const [prediction, setPrediction] = useState(9);
+  const {
+    isRunning,
+    contractBoughtActive,
+    activeStatusLabel,
+    tickCount,
+    tickProgress,
+    runsCount,
+    contractsWon,
+    contractsLost,
+    totalStake,
+    totalPayout,
+    sessionProfit,
+    contractProfitLoss,
+    contractValue,
+    journalLogs,
+    toggleRunStop,
+    resetStats,
+  } = useBotExecution(stake, market, contractType);
 
-  // Block 2: Purchase Conditions State
-  const [purchaseContract, setPurchaseContract] = useState('UNDER');
-  const [purchaseBarrier, setPurchaseBarrier] = useState(9);
-
-  // Block 3: Sell Conditions State
-  const [sellEnabled, setSellEnabled] = useState(true);
-  const [sellProfitThreshold, setSellProfitThreshold] = useState(0.45);
-
-  // Block 4: Restart Trading Conditions State
-  const [restartTrigger, setRestartTrigger] = useState('Win');
-  const [winStakeTarget, setWinStakeTarget] = useState('Initial Stake');
-  const [rotateMarketOnWin, setRotateMarketOnWin] = useState(true);
-  const [lossFormulaOp, setLossFormulaOp] = useState('*');
-  const [lossFactor, setLossFactor] = useState('Martingale Multiplier');
-  const [stopProfitTarget, setStopProfitTarget] = useState(5);
-  const [stopLossTarget, setStopLossTarget] = useState(-10);
-  const [tradeAgain, setTradeAgain] = useState(true);
-
-  // Undo / Redo Snapshot Stack
-  const [historyStack, setHistoryStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
-
-  const getSnapshot = () => ({
-    marketId,
-    alternateMarkets,
-    altRuns,
-    autoScan,
-    vhEnabled,
-    tradeType,
-    contractType,
-    candleInterval,
-    initialStake,
-    martingaleMult,
-    durationTicks,
-    prediction,
-    purchaseContract,
-    purchaseBarrier,
-    stopProfitTarget,
-    stopLossTarget
-  });
-
-  const pushHistory = () => {
-    setHistoryStack((prev) => [...prev.slice(-19), getSnapshot()]);
-    setRedoStack([]);
-  };
-
-  const handleUndo = () => {
-    if (!historyStack.length) return;
-    const prevSnap = historyStack[historyStack.length - 1];
-    setRedoStack((r) => [...r, getSnapshot()]);
-    setHistoryStack((h) => h.slice(0, -1));
-    applySnapshot(prevSnap);
-  };
-
-  const handleRedo = () => {
-    if (!redoStack.length) return;
-    const nextSnap = redoStack[redoStack.length - 1];
-    setHistoryStack((h) => [...h, getSnapshot()]);
-    setRedoStack((r) => r.slice(0, -1));
-    applySnapshot(nextSnap);
-  };
-
-  const applySnapshot = (s) => {
-    setMarketId(s.marketId);
-    setAlternateMarkets(s.alternateMarkets);
-    setAltRuns(s.altRuns);
-    setAutoScan(s.autoScan);
-    setVhEnabled(s.vhEnabled);
-    setTradeType(s.tradeType);
-    setContractType(s.contractType);
-    setCandleInterval(s.candleInterval);
-    setInitialStake(s.initialStake);
-    setMartingaleMult(s.martingaleMult);
-    setDurationTicks(s.durationTicks);
-    setPrediction(s.prediction);
-    setPurchaseContract(s.purchaseContract);
-    setPurchaseBarrier(s.purchaseBarrier);
-    setStopProfitTarget(s.stopProfitTarget);
-    setStopLossTarget(s.stopLossTarget);
-  };
-
-  const handleQuickStrategy = () => {
-    pushHistory();
-    setMarketId('R_25');
-    setTradeType('Digits > Over/Under');
-    setInitialStake(0.5);
-    setMartingaleMult(2);
-    setDurationTicks(1);
-    setPrediction(9);
-    setPurchaseContract('UNDER');
-    setPurchaseBarrier(9);
-    setHighlightedBlock('trade-params');
-    onLogEvent({
-      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-      msg: '[Bot Builder] Quick Strategy loaded: Volatility 25 · Over/Under · Stake 0.50'
-    });
-  };
-
-  const handleResetWorkspace = () => {
-    pushHistory();
-    setMarketId('R_25');
-    setInitialStake(0.5);
-    setMartingaleMult(2);
-    setDurationTicks(1);
-    setPrediction(9);
-    setStopProfitTarget(5);
-    setStopLossTarget(-10);
-    setSearchQuery('');
-    onClearLogs();
-  };
-
-  const handleSaveXml = () => {
-    const xml = `<xml xmlns="https://developers.google.com/blockly/xml">
-  <block type="kingsfx_strategy">
-    <field name="MARKET">${marketId}</field>
-    <field name="TRADE_TYPE">${tradeType}</field>
-    <field name="STAKE">${initialStake}</field>
-    <field name="MARTINGALE">${martingaleMult}</field>
-    <field name="DURATION">${durationTicks}</field>
-    <field name="PREDICTION">${prediction}</field>
-    <field name="PURCHASE">${purchaseContract}</field>
-    <field name="TAKE_PROFIT">${stopProfitTarget}</field>
-    <field name="STOP_LOSS">${stopLossTarget}</field>
-  </block>
-</xml>`;
-    const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `kingsfx-bot-${marketId.toLowerCase()}.xml`;
-    a.click();
-    URL.revokeObjectURL(url);
-    onLogEvent({
-      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-      msg: `[Bot Builder] Exported strategy XML for ${marketId}`
-    });
-  };
-
-  const handleLoadXmlFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    pushHistory();
-    onLogEvent({
-      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-      msg: `[Bot Builder] Loaded strategy file "${file.name}"`
-    });
-    e.target.value = '';
-  };
-
-  const executeSidebarLeaf = (entry) => {
-    if (entry.preset) {
-      pushHistory();
-      if (entry.preset.tradeType) setTradeType(entry.preset.tradeType);
-      if (typeof entry.preset.prediction === 'number') {
-        setPrediction(entry.preset.prediction);
-        setPurchaseBarrier(entry.preset.prediction);
+  const filteredCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return BLOCK_CATEGORIES;
+    return BLOCK_CATEGORIES.map((cat) => {
+      const catMatch = cat.label.toLowerCase().includes(q);
+      const matchedItems = (cat.items || []).filter((item) =>
+        item.toLowerCase().includes(q)
+      );
+      if (catMatch || matchedItems.length > 0) {
+        return { ...cat, items: matchedItems.length > 0 ? matchedItems : cat.items };
       }
-      setHighlightedBlock('trade-params');
-      onLogEvent({
-        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-        msg: `[Logic Applied] ${entry.name}`
-      });
-      return;
-    }
-
-    if (entry.targetBlock) {
-      setHighlightedBlock(entry.targetBlock);
-      const el = document.getElementById(`kfx-blk-${entry.targetBlock}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-
-    switch (entry.action) {
-      case 'open-analysis':
-        onNavigate('analysis-tools');
-        break;
-      case 'inspect-ticks': {
-        const ticks = ticksByMarket[marketId] || [];
-        const last = ticks[ticks.length - 1];
-        setRightTab('journal');
-        onLogEvent({
-          time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-          msg: `[Tick Probe] ${marketId} spot ${last?.price ?? '—'} · last digit ${last?.digit ?? '—'}`
-        });
-        break;
-      }
-      case 'focus-summary':
-        setRightTab('summary');
-        break;
-      case 'toggle-vh':
-        setVhEnabled((v) => !v);
-        setHighlightedBlock('trade-params');
-        onLogEvent({
-          time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-          msg: `[Utility] Virtual Hook ${!vhEnabled ? 'ENABLED' : 'DISABLED'}`
-        });
-        break;
-      case 'log-notify':
-        setRightTab('journal');
-        onLogEvent({
-          time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-          msg: `[Notification] Alert armed when P/L hits +${stopProfitTarget} or ${stopLossTarget} ${currency}`
-        });
-        break;
-      case 'log-risk':
-        setRightTab('summary');
-        onLogEvent({
-          time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-          msg: `[KingsFX Risk Lock] TP +${stopProfitTarget} / SL ${stopLossTarget} active`
-        });
-        break;
-      default:
-        break;
-    }
-  };
-
-  const handleSidebarRowClick = (item) => {
-    setActiveSidebarId(item.id);
-    if (item.children?.length) {
-      setExpandedGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }));
-    }
-    executeSidebarLeaf(item);
-  };
-
-  const filteredSidebarItems = useMemo(() => {
-    if (!searchQuery.trim()) return SIDEBAR_ITEMS;
-    const q = searchQuery.toLowerCase();
-    return SIDEBAR_ITEMS.filter((item) => {
-      const matchSelf = item.label.toLowerCase().includes(q);
-      const matchChild = item.children?.some((c) => c.name.toLowerCase().includes(q));
-      return matchSelf || matchChild;
-    });
+      return null;
+    }).filter(Boolean);
   }, [searchQuery]);
 
-  // Derived Summary Metrics
-  const sessionStats = useMemo(() => {
-    let wins = 0;
-    let losses = 0;
-    let pnl = 0;
-    safeLogs.forEach((l) => {
-      const m = l.msg.match(/([+-]\d+(?:\.\d+)?)/);
-      if (m) {
-        const val = parseFloat(m[1]);
-        if (!Number.isNaN(val)) {
-          pnl += val;
-          if (val >= 0) wins += 1;
-          else losses += 1;
-        }
-      }
-    });
-    const runs = wins + losses;
-    const totalStake = Number((runs * initialStake).toFixed(2));
-    const totalPayout = Number(Math.max(0, totalStake + pnl).toFixed(2));
-    return {
-      totalStake,
-      totalPayout,
-      runs,
-      losses,
-      wins,
-      pnl: Number(pnl.toFixed(2))
-    };
-  }, [safeLogs, initialStake]);
+  const toggleGroup = (id) => {
+    setExpandedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
-  const filteredLogs = useMemo(() => {
-    const base =
-      rightTab === 'transactions'
-        ? safeLogs.filter(
-            (l) =>
-              l.msg.toLowerCase().includes('contract') ||
-              l.msg.toLowerCase().includes('won') ||
-              l.msg.toLowerCase().includes('lost') ||
-              l.msg.toLowerCase().includes('stake')
-          )
-        : safeLogs;
-    if (!filterText.trim()) return base;
-    const q = filterText.toLowerCase();
-    return base.filter((l) => l.msg.toLowerCase().includes(q));
-  }, [safeLogs, rightTab, filterText]);
-
-  useEffect(() => {
-    if (!isRunning) return;
-    const id = setInterval(() => {
-      const ticks = ticksByMarket[marketId] || [];
-      const latest = ticks[ticks.length - 1];
-      const digit = latest?.digit ?? Math.floor(Math.random() * 10);
-      const won =
-        purchaseContract === 'UNDER' ? digit <= purchaseBarrier : digit >= purchaseBarrier;
-      const delta = won
-        ? Number((initialStake * 0.85).toFixed(2))
-        : Number((-initialStake).toFixed(2));
-      onLogEvent({
-        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-        msg: `[Builder ${purchaseContract} ${purchaseBarrier}] Digit ${digit} -> ${
-          won ? '+' : ''
-        }${delta.toFixed(2)} ${currency}`
-      });
-    }, 2200);
-
-    return () => clearInterval(id);
-  }, [isRunning, marketId, purchaseContract, purchaseBarrier, initialStake, currency, ticksByMarket, onLogEvent]);
+  const applyQuickStrategy = () => {
+    setEntryPointDigit("7");
+    setStake("1");
+    setExpectedProfit("100");
+    setStopLoss("1000");
+    setMartingaleSplit("2.55");
+    setPredBeforeLoss("9");
+    setPredAfterLoss("6");
+  };
 
   return (
-    <section className="kfx-bb-shell">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xml,.json"
-        style={{ display: 'none' }}
-        onChange={handleLoadXmlFile}
-      />
-
-      {/* Left Sidebar: Quick Strategy, Blocks Menu, Search & Links */}
-      <aside className="kfx-bb-sidebar">
-        <div className="kfx-bb-top-actions">
+    <div className="bot-builder-shell">
+      <div className="bb-workspace">
+        <aside className="bb-left-sidebar">
           <button
             type="button"
-            className="kfx-bb-quick-btn"
-            onClick={handleQuickStrategy}
+            onClick={applyQuickStrategy}
+            className="bb-quick-strategy-btn"
           >
-            <NavIcon name="quick-bot" size={14} />
-            <span>Quick strategy</span>
+            Quick strategy
           </button>
-        </div>
 
-        <div className="kfx-bb-menu-head">
-          <span>Blocks menu</span>
-          <span style={{ fontSize: 11, color: '#6B7280' }}>^</span>
-        </div>
-
-        <div className="kfx-bb-search-wrap">
-          <span className="kfx-bb-search-icon">
-            <NavIcon name="search" size={13} />
-          </span>
-          <input
-            type="text"
-            className="kfx-bb-search-input"
-            placeholder="Search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="kfx-bb-nav-list">
-          {filteredSidebarItems.map((item) => {
-            const isExpanded = !!expandedGroups[item.id] || searchQuery.trim().length > 0;
-            return (
-              <div key={item.id}>
-                <button
-                  type="button"
-                  className={`kfx-bb-nav-item ${
-                    activeSidebarId === item.id ? 'is-active' : ''
-                  }`}
-                  onClick={() => handleSidebarRowClick(item)}
-                >
-                  <span className="kfx-bb-nav-left">
-                    <span>{item.label}</span>
-                    {item.badgeIcon && <NavIcon name={item.badgeIcon} size={13} />}
-                  </span>
-                  {item.children?.length ? (
-                    <span style={{ fontSize: 11, color: '#6B7280' }}>
-                      {isExpanded ? 'v' : '>'}
-                    </span>
-                  ) : null}
-                </button>
-
-                {item.children?.length && isExpanded ? (
-                  <div className="kfx-bb-sub-list">
-                    {item.children.map((sub) => (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        className="kfx-bb-sub-btn"
-                        onClick={() => executeSidebarLeaf(sub)}
-                      >
-                        <span>{sub.name}</span>
-                        <span style={{ fontSize: 10, color: '#9B0D18' }}>Apply</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Center Canvas: Top Toolbar + 2-Column Crimson Blockly Workspace */}
-      <div className="kfx-bb-canvas">
-        <div className="kfx-bb-toolbar">
-          <div className="kfx-bb-tool-group">
-            <button
-              type="button"
-              className="kfx-bb-tool-btn"
-              title="Reset Workspace"
-              onClick={handleResetWorkspace}
-            >
-              <NavIcon name="auto-trading" size={14} />
-            </button>
-            <button
-              type="button"
-              className="kfx-bb-tool-btn"
-              title="Load Strategy XML"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <NavIcon name="folder" size={14} />
-            </button>
-            <button
-              type="button"
-              className="kfx-bb-tool-btn"
-              title="Save Strategy XML"
-              onClick={handleSaveXml}
-            >
-              <NavIcon name="reports" size={14} />
-            </button>
+          <div
+            className="bb-blocks-header"
+            onClick={() => setBlocksMenuOpen((o) => !o)}
+            style={{ cursor: "pointer" }}
+          >
+            <span>Blocks menu</span>
+            <span>{blocksMenuOpen ? "˄" : "˅"}</span>
           </div>
 
-          <div className="kfx-bb-tool-group">
-            <button
-              type="button"
-              className="kfx-bb-tool-btn"
-              title="Undo"
-              onClick={handleUndo}
-            >
-              &lt;-
+          {blocksMenuOpen && (
+            <>
+              <div className="bb-search-wrap">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search"
+                  className="bb-search-input"
+                />
+              </div>
+
+              <div className="bb-blocks-list">
+                {filteredCategories.map((cat) => (
+                  <div key={cat.id}>
+                    <button
+                      type="button"
+                      onClick={() => (cat.expandable ? toggleGroup(cat.id) : null)}
+                      className={`bb-category-btn ${cat.expandable ? "is-group" : ""}`}
+                    >
+                      <span>{cat.label}</span>
+                      {cat.expandable && <span>{expandedGroups[cat.id] ? "˄" : "˅"}</span>}
+                    </button>
+
+                    {cat.expandable && expandedGroups[cat.id] && cat.items && (
+                      <div className="bb-sub-list">
+                        {cat.items.map((sub) => (
+                          <div key={sub} className="bb-sub-item">
+                            <span>{sub}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="bb-risk-disclaimer">⚠ Risk Disclaimer</div>
+        </aside>
+
+        <main className="bb-canvas-area">
+          <div className="bb-toolbar">
+            <button type="button" className="bb-tool-btn" title="Refresh" onClick={applyQuickStrategy}>
+              ↻
+            </button>
+            <button type="button" className="bb-tool-btn" title="Load strategy">
+              📂
+            </button>
+            <button type="button" className="bb-tool-btn" title="Save strategy">
+              💾
+            </button>
+            <button type="button" className="bb-tool-btn" title="Structure">
+              ☰
+            </button>
+            <button type="button" className="bb-tool-btn" title="Indicators">
+              📊
+            </button>
+            <button type="button" className="bb-tool-btn" title="Grid">
+              ⊞
+            </button>
+            <button type="button" className="bb-tool-btn" title="Performance">
+              📈
+            </button>
+            <button type="button" className="bb-tool-btn" title="Undo">
+              ↶
+            </button>
+            <button type="button" className="bb-tool-btn" title="Redo">
+              ↷
             </button>
             <button
               type="button"
-              className="kfx-bb-tool-btn"
-              title="Redo"
-              onClick={handleRedo}
-            >
-              -&gt;
-            </button>
-            <button
-              type="button"
-              className="kfx-bb-tool-btn"
-              title="Zoom In"
-              onClick={() => setZoom((z) => Math.min(1.2, Number((z + 0.05).toFixed(2))))}
+              className="bb-tool-btn"
+              title="Zoom in"
+              onClick={() => setZoom((z) => Math.min(1.25, Number((z + 0.05).toFixed(2))))}
             >
               +
             </button>
             <button
               type="button"
-              className="kfx-bb-tool-btn"
-              title="Zoom Out"
-              onClick={() => setZoom((z) => Math.max(0.85, Number((z - 0.05).toFixed(2))))}
+              className="bb-tool-btn"
+              title="Zoom out"
+              onClick={() => setZoom((z) => Math.max(0.75, Number((z - 0.05).toFixed(2))))}
             >
               -
             </button>
           </div>
-        </div>
 
-        <div className="kfx-bb-workspace-scroll">
-          <div
-            className="kfx-bb-zoom-stage"
-            style={{ transform: `scale(${zoom})` }}
-          >
-            <div className="kfx-bb-columns">
-              {/* Left Column: 1. Trade parameters + 2. Purchase conditions */}
-              <div>
-                <div
-                  id="kfx-blk-trade-params"
-                  className={`kfx-blk-card ${
-                    highlightedBlock === 'trade-params' ? 'is-highlighted' : ''
-                  }`}
-                >
-                  <div className="kfx-blk-header">
+          <div className="bb-canvas-stage" style={{ transform: `scale(${zoom})` }}>
+            <div className="bb-canvas-row">
+              <div className="bb-block-stack">
+                <section className="bb-block">
+                  <div className="bb-block-title">
                     <span>1. Trade parameters</span>
-                    <span style={{ fontSize: 10, opacity: 0.9 }}>KINGSFX</span>
+                    <span>▾</span>
                   </div>
-                  <div className="kfx-blk-body">
-                    <div className="kfx-blk-row">
-                      <span>Market:</span>
-                      <span className="kfx-blk-pill-select">synthetic_index</span>
-                      <span>&gt;</span>
-                      <span className="kfx-blk-pill-select">random_index</span>
-                      <span>&gt;</span>
+
+                  <div className="bb-block-body">
+                    <div className="bb-field-row">
+                      <span>Market: synthetic_index &gt; random_index &gt;</span>
                       <select
-                        className="kfx-blk-pill-select"
-                        value={marketId}
-                        onChange={(e) => {
-                          pushHistory();
-                          setMarketId(e.target.value);
-                        }}
+                        value={market}
+                        onChange={(e) => setMarket(e.target.value)}
+                        className="bb-pill-select"
                       >
-                        {SYNTHETIC_MARKETS.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label} Index
-                          </option>
-                        ))}
+                        <option>Volatility 10 (1s) Index</option>
+                        <option>Volatility 25 (1s) Index</option>
+                        <option>Volatility 75 (1s) Index</option>
                       </select>
                     </div>
 
-                    <div className="kfx-blk-row">
-                      <input
-                        type="checkbox"
-                        checked={alternateMarkets}
-                        onChange={(e) => setAlternateMarkets(e.target.checked)}
-                      />
+                    <div className="bb-field-row">
                       <span>Alternate markets (Continuous Indices only):</span>
-                      <input
-                        type="checkbox"
-                        checked={alternateMarkets}
-                        onChange={(e) => setAlternateMarkets(e.target.checked)}
-                      />
+                      <input type="checkbox" />
                       <span>every</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={25}
-                        className="kfx-blk-pill-input"
-                        value={altRuns}
-                        onChange={(e) => setAltRuns(Number(e.target.value) || 1)}
-                      />
+                      <input type="text" defaultValue="1" className="bb-pill-input short" />
                       <span>run(s)</span>
                     </div>
 
-                    <div className="kfx-blk-row">
-                      <input
-                        type="checkbox"
-                        checked={autoScan}
-                        onChange={(e) => setAutoScan(e.target.checked)}
-                      />
+                    <div className="bb-field-row">
                       <span>Auto-scan volatility markets and trade first match:</span>
-                      <input
-                        type="checkbox"
-                        checked={autoScan}
-                        onChange={(e) => setAutoScan(e.target.checked)}
-                      />
+                      <input type="checkbox" />
                     </div>
 
-                    <div className="kfx-blk-row">
+                    <div className="bb-field-row">
                       <span>Virtual Hook:</span>
-                      <input
-                        type="checkbox"
-                        checked={vhEnabled}
-                        onChange={(e) => setVhEnabled(e.target.checked)}
-                      />
-                      <button
-                        type="button"
-                        className="kfx-blk-vh-btn"
-                        onClick={() => setVhEnabled((v) => !v)}
-                      >
-                        VH Settings
-                      </button>
+                      <span className="bb-pill-select">VH Settings</span>
                     </div>
 
-                    <div className="kfx-blk-row">
-                      <span>Trade Type:</span>
+                    <div className="bb-field-row">
+                      <span>Trade Type: Digits &gt;</span>
                       <select
-                        className="kfx-blk-pill-select"
                         value={tradeType}
                         onChange={(e) => setTradeType(e.target.value)}
+                        className="bb-pill-select"
                       >
-                        <option value="Digits > Over/Under">Digits &gt; Over/Under</option>
-                        <option value="Digits > Even/Odd">Digits &gt; Even/Odd</option>
-                        <option value="Up/Down > Rise/Fall">Up/Down &gt; Rise/Fall</option>
+                        <option>Over/Under</option>
+                        <option>Matches/Differs</option>
+                        <option>Even/Odd</option>
                       </select>
                     </div>
 
-                    <div className="kfx-blk-row">
+                    <div className="bb-field-row">
                       <span>Contract Type:</span>
                       <select
-                        className="kfx-blk-pill-select"
                         value={contractType}
                         onChange={(e) => setContractType(e.target.value)}
+                        className="bb-pill-select"
                       >
-                        <option value="Both">Both</option>
-                        <option value="Over">Over</option>
-                        <option value="Under">Under</option>
+                        <option>Under</option>
+                        <option>Over</option>
                       </select>
                     </div>
 
-                    <div className="kfx-blk-row">
+                    <div className="bb-field-row">
                       <span>Default Candle Interval:</span>
                       <select
-                        className="kfx-blk-pill-select"
                         value={candleInterval}
                         onChange={(e) => setCandleInterval(e.target.value)}
+                        className="bb-pill-select"
                       >
-                        <option value="1 minute">1 minute</option>
-                        <option value="2 minutes">2 minutes</option>
-                        <option value="5 minutes">5 minutes</option>
+                        <option>1 minute</option>
+                        <option>2 minutes</option>
+                        <option>5 minutes</option>
                       </select>
                     </div>
 
-                    <div className="kfx-blk-row">
+                    <div className="bb-field-row">
                       <span>Restart buy/sell on error (disable for better performance):</span>
-                      <input
-                        type="checkbox"
-                        checked={restartOnError}
-                        onChange={(e) => setRestartOnError(e.target.checked)}
-                      />
+                      <input type="checkbox" />
                     </div>
 
-                    <div className="kfx-blk-row">
+                    <div className="bb-field-row">
                       <span>Restart last trade on error (bot ignores the unsuccessful trade):</span>
+                      <input type="checkbox" defaultChecked />
+                    </div>
+
+                    <div className="bb-sub-section-label">Run once at start:</div>
+
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Entrypoint-Digit</span>
+                      <span>to</span>
                       <input
-                        type="checkbox"
-                        checked={restartLastTradeOnError}
-                        onChange={(e) => setRestartLastTradeOnError(e.target.checked)}
+                        type="text"
+                        value={entryPointDigit}
+                        onChange={(e) => setEntryPointDigit(e.target.value)}
+                        className="bb-pill-input short"
                       />
                     </div>
 
-                    <div className="kfx-blk-subband">Run once at start:</div>
-
-                    <div className="kfx-blk-inner-box">
-                      <div className="kfx-blk-row">
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Initial Stake</span>
-                        <span>to</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="kfx-blk-pill-input"
-                          value={initialStake}
-                          onChange={(e) => setInitialStake(Number(e.target.value) || 0.5)}
-                        />
-                      </div>
-
-                      <div className="kfx-blk-row">
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Martingale Multiplier</span>
-                        <span>to</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          className="kfx-blk-pill-input"
-                          value={martingaleMult}
-                          onChange={(e) => setMartingaleMult(Number(e.target.value) || 2)}
-                        />
-                      </div>
-
-                      <div className="kfx-blk-row">
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Current Stake</span>
-                        <span>to</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={currentStakeMode}
-                          onChange={(e) => setCurrentStakeMode(e.target.value)}
-                        >
-                          <option value="Initial Stake">Initial Stake</option>
-                          <option value="Current Stake">Current Stake</option>
-                        </select>
-                      </div>
-
-                      <div className="kfx-blk-row">
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Entry Digit</span>
-                        <span>to</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={9}
-                          className="kfx-blk-pill-input"
-                          value={entryDigit}
-                          onChange={(e) => setEntryDigit(Number(e.target.value) || 0)}
-                        />
-                      </div>
-
-                      <div className="kfx-blk-row">
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Entry Armed</span>
-                        <span>to</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={entryArmed}
-                          onChange={(e) => setEntryArmed(e.target.value)}
-                        >
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      </div>
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Stake</span>
+                      <span>to</span>
+                      <input
+                        type="text"
+                        value={stake}
+                        onChange={(e) => setStake(e.target.value)}
+                        className="bb-pill-input short"
+                      />
                     </div>
 
-                    <div className="kfx-blk-subband">Trade options:</div>
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Expected Profit</span>
+                      <span>to</span>
+                      <input
+                        type="text"
+                        value={expectedProfit}
+                        onChange={(e) => setExpectedProfit(e.target.value)}
+                        className="bb-pill-input med"
+                      />
+                    </div>
 
-                    <div className="kfx-blk-branch-box">
-                      <div className="kfx-blk-row">
-                        <span className="kfx-blk-pill-select">repeat until (Entry Armed =...</span>
-                      </div>
-                      <div className="kfx-blk-row">
-                        <span>Duration:</span>
-                        <span className="kfx-blk-pill-select">Ticks</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          className="kfx-blk-pill-input"
-                          value={durationTicks}
-                          onChange={(e) => setDurationTicks(Number(e.target.value) || 1)}
-                        />
-                        <span>Stake: {currency}</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={stakeRef}
-                          onChange={(e) => setStakeRef(e.target.value)}
-                        >
-                          <option value="Current Stake">Current Stake</option>
-                          <option value="Initial Stake">Initial Stake</option>
-                        </select>
-                        <span>Prediction:</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={9}
-                          className="kfx-blk-pill-input"
-                          value={prediction}
-                          onChange={(e) => setPrediction(Number(e.target.value) || 0)}
-                        />
-                      </div>
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Stop Loss</span>
+                      <span>to</span>
+                      <input
+                        type="text"
+                        value={stopLoss}
+                        onChange={(e) => setStopLoss(e.target.value)}
+                        className="bb-pill-input med"
+                      />
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set Initial Stake to Stake</span>
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set Martingale Split to</span>
+                      <input
+                        type="text"
+                        value={martingaleSplit}
+                        onChange={(e) => setMartingaleSplit(e.target.value)}
+                        className="bb-pill-input short"
+                      />
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set Payout % to</span>
+                      <input
+                        type="text"
+                        value={payoutPct}
+                        onChange={(e) => setPayoutPct(e.target.value)}
+                        className="bb-pill-input short"
+                      />
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set Prediction to Prediction...</span>
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set Analysis to analysis</span>
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Prediction before loss</span>
+                      <span>to</span>
+                      <input
+                        type="text"
+                        value={predBeforeLoss}
+                        onChange={(e) => setPredBeforeLoss(e.target.value)}
+                        className="bb-pill-input short"
+                      />
+                    </div>
+
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Prediction after loss</span>
+                      <span>to</span>
+                      <input
+                        type="text"
+                        value={predAfterLoss}
+                        onChange={(e) => setPredAfterLoss(e.target.value)}
+                        className="bb-pill-input short"
+                      />
+                    </div>
+
+                    <div className="bb-sub-section-label">Trade options:</div>
+                    <div className="bb-field-row">
+                      <span className="bb-pill-select">Duration: Ticks 1 Stake: US...</span>
                     </div>
                   </div>
-                </div>
+                </section>
 
-                {/* Block 2: Purchase conditions */}
-                <div
-                  id="kfx-blk-purchase-cond"
-                  className={`kfx-blk-card ${
-                    highlightedBlock === 'purchase-cond' ? 'is-highlighted' : ''
-                  }`}
-                >
-                  <div className="kfx-blk-header">
+                <section className="bb-block">
+                  <div className="bb-block-title">
                     <span>2. Purchase conditions</span>
+                    <span>▾</span>
                   </div>
-                  <div className="kfx-blk-body">
-                    <div className="kfx-blk-row">
-                      <span>Purchase</span>
-                      <select
-                        className="kfx-blk-pill-select"
-                        value={purchaseContract}
-                        onChange={(e) => setPurchaseContract(e.target.value)}
-                      >
-                        <option value="UNDER">UNDER</option>
-                        <option value="OVER">OVER</option>
-                        <option value="EVEN">EVEN</option>
-                        <option value="ODD">ODD</option>
-                      </select>
-                      <span>Barrier:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={9}
-                        className="kfx-blk-pill-input"
-                        value={purchaseBarrier}
-                        onChange={(e) => setPurchaseBarrier(Number(e.target.value) || 0)}
-                      />
+                  <div className="bb-block-body">
+                    <div className="bb-sub-section-label">
+                      The content of this block is called on every tick
+                    </div>
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">Tick 1</span>
+                      <span>to</span>
+                      <span>in list Last digits list get</span>
+                      <span className="bb-pill-select"># from end</span>
+                      <input type="text" defaultValue="1" className="bb-pill-input short" />
+                    </div>
+                    <div className="bb-field-row">
+                      <span>set</span>
+                      <span className="bb-pill-select">text</span>
+                      <span>to create text with</span>
+                    </div>
+                    <div className="bb-field-row">
+                      <span className="bb-pill-select">Last Appearing Digit&gt; |</span>
+                      <span>+</span>
+                    </div>
+                    <div className="bb-field-row">
+                      <span className="bb-pill-select">Tick 1</span>
+                      <span>+</span>
                     </div>
                   </div>
-                </div>
+                </section>
               </div>
 
-              {/* Right Column: 4. Restart trading conditions + 3. Sell conditions */}
-              <div>
-                <div
-                  id="kfx-blk-restart-cond"
-                  className={`kfx-blk-card ${
-                    highlightedBlock === 'restart-cond' ? 'is-highlighted' : ''
-                  }`}
-                >
-                  <div className="kfx-blk-header">
+              <div style={{ width: "170px", paddingTop: "4px" }}>
+                <div className="bb-block" style={{ padding: "6px 8px" }}>
+                  <div className="bb-block-title" style={{ marginBottom: 0, borderBottom: "none" }}>
                     <span>4. Restart trading conditions</span>
-                  </div>
-                  <div className="kfx-blk-body">
-                    <div className="kfx-blk-branch-box">
-                      <div className="kfx-blk-row">
-                        <span>if</span>
-                        <span className="kfx-blk-pill-select">Result is</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={restartTrigger}
-                          onChange={(e) => setRestartTrigger(e.target.value)}
-                        >
-                          <option value="Win">Win</option>
-                          <option value="Loss">Loss</option>
-                        </select>
-                        <span>then</span>
-                      </div>
-
-                      <div className="kfx-blk-row" style={{ paddingLeft: 12 }}>
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Current Stake</span>
-                        <span>to</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={winStakeTarget}
-                          onChange={(e) => setWinStakeTarget(e.target.value)}
-                        >
-                          <option value="Initial Stake">Initial Stake</option>
-                          <option value="Current Stake">Current Stake</option>
-                        </select>
-                      </div>
-
-                      <div className="kfx-blk-row" style={{ paddingLeft: 12 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <input
-                            type="checkbox"
-                            checked={rotateMarketOnWin}
-                            onChange={(e) => setRotateMarketOnWin(e.target.checked)}
-                          />
-                          <span>Rotate to next volatility market</span>
-                        </label>
-                      </div>
-
-                      <div className="kfx-blk-row">
-                        <span>else</span>
-                      </div>
-
-                      <div className="kfx-blk-row" style={{ paddingLeft: 12 }}>
-                        <span>set</span>
-                        <span className="kfx-blk-pill-select">Current Stake</span>
-                        <span>to</span>
-                        <span className="kfx-blk-pill-select">Current Stake</span>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={lossFormulaOp}
-                          onChange={(e) => setLossFormulaOp(e.target.value)}
-                        >
-                          <option value="*">*</option>
-                          <option value="+">+</option>
-                        </select>
-                        <select
-                          className="kfx-blk-pill-select"
-                          value={lossFactor}
-                          onChange={(e) => setLossFactor(e.target.value)}
-                        >
-                          <option value="Martingale Multiplier">Martingale Multiplier</option>
-                          <option value="Initial Stake">Initial Stake</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="kfx-blk-row">
-                      <span>Stop if total profit &gt;=</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="kfx-blk-pill-input"
-                        value={stopProfitTarget}
-                        onChange={(e) => setStopProfitTarget(Number(e.target.value) || 5)}
-                      />
-                    </div>
-
-                    <div className="kfx-blk-row">
-                      <span>Stop if total profit &lt;=</span>
-                      <input
-                        type="number"
-                        step="1"
-                        className="kfx-blk-pill-input"
-                        value={stopLossTarget}
-                        onChange={(e) => setStopLossTarget(Number(e.target.value) || -10)}
-                      />
-                    </div>
-
-                    <div className="kfx-blk-row">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-                        <input
-                          type="checkbox"
-                          checked={tradeAgain}
-                          onChange={(e) => setTradeAgain(e.target.checked)}
-                        />
-                        <span>Trade again</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Block 3: Sell conditions */}
-                <div
-                  id="kfx-blk-sell-cond"
-                  className={`kfx-blk-card ${
-                    highlightedBlock === 'sell-cond' ? 'is-highlighted' : ''
-                  }`}
-                >
-                  <div className="kfx-blk-header">
-                    <span>3. Sell conditions (optional)</span>
-                  </div>
-                  <div className="kfx-blk-body">
-                    <div className="kfx-blk-row">
-                      <input
-                        type="checkbox"
-                        checked={sellEnabled}
-                        onChange={(e) => setSellEnabled(e.target.checked)}
-                      />
-                      <span>if Sell is available then sell at profit &gt;=</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        className="kfx-blk-pill-input"
-                        value={sellProfitThreshold}
-                        onChange={(e) => setSellProfitThreshold(Number(e.target.value) || 0.45)}
-                      />
-                    </div>
+                    <span>▾</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <button
-          type="button"
-          className="kfx-blk-trash"
-          title="Clear Journal Logs"
-          onClick={onClearLogs}
-        >
-          <NavIcon name="folder" size={16} />
-        </button>
-      </div>
+          <button
+            type="button"
+            className="bb-trash-bin"
+            title="Clear selected block"
+            onClick={applyQuickStrategy}
+          >
+            🗑
+          </button>
+        </main>
 
-      {/* Right Panel: Summary / Transactions / Journal + Session Totals Footer */}
-      <aside className="kfx-bb-right">
-        <div>
-          <div className="kfx-right-tabs">
-            {['summary', 'transactions', 'journal'].map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={`kfx-right-tab ${rightTab === tab ? 'is-active' : ''}`}
-                onClick={() => setRightTab(tab)}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          <div className="kfx-right-actions">
+        <aside className="bb-right-panel">
+          <div className="bb-panel-tabs">
             <button
               type="button"
-              className="kfx-download-crimson"
-              onClick={handleSaveXml}
+              onClick={() => setRightTab("summary")}
+              className={`bb-panel-tab ${rightTab === "summary" ? "active" : ""}`}
             >
-              Export Bot
+              Summary
             </button>
             <button
               type="button"
-              className="kfx-mini-btn is-ready"
-              onClick={() => setShowFilter((s) => !s)}
+              onClick={() => setRightTab("transactions")}
+              className={`bb-panel-tab ${rightTab === "transactions" ? "active" : ""}`}
             >
-              Filters
+              Transactions
             </button>
             <button
               type="button"
-              className="kfx-mini-btn is-ready"
-              onClick={onToggleRun}
+              onClick={() => setRightTab("journal")}
+              className={`bb-panel-tab ${rightTab === "journal" ? "active" : ""}`}
             >
-              {isRunning ? 'Stop' : 'Run'}
+              Journal
             </button>
           </div>
 
-          {showFilter && (
-            <div style={{ padding: '8px 10px', borderBottom: '1px solid #E5E7EB' }}>
-              <input
-                type="text"
-                className="kfx-search-input"
-                placeholder="Filter activity..."
-                value={filterText}
-                onChange={(e) => setFilterText(e.target.value)}
-              />
-            </div>
-          )}
-
-          {rightTab === 'summary' && !filteredLogs.length ? (
-            <div className="kfx-empty-state">
-              <div style={{ fontWeight: 800, color: '#10B981', fontSize: 16, marginBottom: 4 }}>
-                {sessionStats.pnl >= 0 ? '+' : ''}
-                {currency} {sessionStats.pnl.toFixed(2)}
-              </div>
-              <div style={{ fontWeight: 700, color: '#6B7280' }}>
-                {isRunning ? 'Bot executing contract cycle...' : 'Ready to run strategy'}
-              </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 7,
-                maxHeight: 460,
-                overflowY: 'auto'
-              }}
-            >
-              {filteredLogs.length ? (
-                filteredLogs.map((entry, i) => (
+          {rightTab === "summary" && (
+            <div className="bb-summary-content">
+              <div className="bb-contract-card">
+                <div className="bb-contract-top">
+                  <span>{isRunning ? market : "Idle"}</span>
+                  <span>⇄ {contractType}</span>
+                </div>
+                <div className="bb-tick-bar-track">
                   <div
-                    key={i}
-                    style={{
-                      fontSize: 11,
-                      padding: '7px 9px',
-                      borderRadius: 6,
-                      background: '#F9FAFB',
-                      border: '1px solid #E5E7EB',
-                      color: '#1F2937'
-                    }}
-                  >
-                    <div>{entry.msg}</div>
-                    <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>
-                      {entry.time}
+                    className="bb-tick-bar-fill"
+                    style={{ width: `${isRunning ? Math.min(100, tickCount * 12 + 10) : 0}%` }}
+                  />
+                </div>
+                <div style={{ fontSize: "11px", marginBottom: "8px" }}>
+                  {isRunning ? `Tick ${tickCount}` : "Waiting to run"}
+                </div>
+                <span className="bb-usd-pill">USD</span>
+
+                <div className="bb-metrics-grid">
+                  <div>
+                    <div className="bb-metric-label">Total profit/loss:</div>
+                    <div
+                      className={`bb-metric-val ${contractProfitLoss < 0 ? "loss" : "profit"}`}
+                    >
+                      {contractProfitLoss < 0
+                        ? `-KSH ${Math.abs(contractProfitLoss).toFixed(2)} ▼`
+                        : `+KSH ${contractProfitLoss.toFixed(2)} ▲`}
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="kfx-empty-state">No entries match the current filter.</div>
-              )}
+                  <div>
+                    <div className="bb-metric-label">Contract value:</div>
+                    <div className="bb-metric-val loss">KSH {contractValue.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="bb-metric-label">Stake:</div>
+                    <div className="bb-metric-val">KSH {(parseFloat(stake) || 1).toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="bb-metric-label">Potential payout:</div>
+                    <div className="bb-metric-val">KSH {((parseFloat(stake) || 1) * 1.85).toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
-        </div>
 
-        <div className="kfx-bb-stats-footer">
-          <div className="kfx-bb-stats-grid">
-            <div>
-              <div className="kfx-bb-stat-lbl">Total stake</div>
-              <div className="kfx-bb-stat-val">
-                {currency} {sessionStats.totalStake.toFixed(2)}
+          {rightTab === "transactions" && (
+            <div className="bb-summary-content">
+              <div style={{ fontSize: "11.5px", color: "#475569" }}>
+                Market: <strong>{market}</strong> ({contractType})
+              </div>
+              <div style={{ fontSize: "11px", color: "#64748b" }}>
+                Status: {isRunning ? "Running" : "Stopped"} | Runs: {runsCount} | Won: {contractsWon} | Lost: {contractsLost}
               </div>
             </div>
-            <div>
-              <div className="kfx-bb-stat-lbl">Total payout</div>
-              <div className="kfx-bb-stat-val">
-                {currency} {sessionStats.totalPayout.toFixed(2)}
-              </div>
-            </div>
-            <div>
-              <div className="kfx-bb-stat-lbl">No. of runs</div>
-              <div className="kfx-bb-stat-val">{sessionStats.runs}</div>
-            </div>
-            <div>
-              <div className="kfx-bb-stat-lbl">Contracts lost</div>
-              <div className="kfx-bb-stat-val">{sessionStats.losses}</div>
-            </div>
-            <div>
-              <div className="kfx-bb-stat-lbl">Contracts won</div>
-              <div className="kfx-bb-stat-val">{sessionStats.wins}</div>
-            </div>
-            <div>
-              <div className="kfx-bb-stat-lbl">Total profit/loss</div>
-              <div
-                className="kfx-bb-stat-val"
-                style={{ color: sessionStats.pnl >= 0 ? '#10B981' : '#EF4444' }}
-              >
-                {sessionStats.pnl >= 0 ? '+' : ''}
-                {currency} {sessionStats.pnl.toFixed(2)}
-              </div>
-            </div>
-          </div>
+          )}
 
-          <div style={{ marginTop: 10 }}>
+          {rightTab === "journal" && (
+            <div className="bb-summary-content">
+              {journalLogs.map((entry, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    fontSize: "10.5px",
+                    padding: "6px 8px",
+                    borderRadius: "5px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  {entry}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="bb-stats-footer-box">
+            <div className="bb-stats-3col">
+              <div>
+                <div className="bb-metric-label">Total stake</div>
+                <div className="bb-stat-num">KSH {totalStake.toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
+              </div>
+              <div>
+                <div className="bb-metric-label">Total payout</div>
+                <div className="bb-stat-num">KSH {totalPayout.toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
+              </div>
+              <div>
+                <div className="bb-metric-label">No. of runs</div>
+                <div className="bb-stat-num">{runsCount}</div>
+              </div>
+            </div>
+
+            <div className="bb-stats-3col" style={{ marginBottom: "10px" }}>
+              <div>
+                <div className="bb-metric-label">Contracts lost</div>
+                <div className="bb-stat-num">{contractsLost}</div>
+              </div>
+              <div>
+                <div className="bb-metric-label">Contracts won</div>
+                <div className="bb-stat-num">{contractsWon}</div>
+              </div>
+              <div>
+                <div className="bb-metric-label">Total profit/loss</div>
+                <div
+                  className="bb-stat-num"
+                  style={{ color: sessionProfit >= 0 ? "#059669" : "#dc2626" }}
+                >
+                  {sessionProfit >= 0 ? `+KSH ${sessionProfit.toFixed(2)}` : `-KSH ${Math.abs(sessionProfit).toFixed(2)}`}
+                </div>
+              </div>
+            </div>
+
             <button
               type="button"
-              className="kfx-reset-crimson"
-              onClick={handleResetWorkspace}
+              onClick={resetStats}
+              className={`bb-reset-btn ${!isRunning ? "ready" : ""}`}
             >
               Reset
             </button>
           </div>
-        </div>
-      </aside>
-    </section>
+        </aside>
+      </div>
+
+      <FooterBar
+        isRunning={isRunning}
+        onToggleRunStop={toggleRunStop}
+        contractBoughtActive={contractBoughtActive}
+        activeStatusLabel={activeStatusLabel}
+        tickProgress={tickProgress}
+      />
+    </div>
   );
 }

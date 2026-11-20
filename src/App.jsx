@@ -3,6 +3,7 @@ import './styles/kingsfx.css';
 import './styles/kingsfx-pro.css';
 import './styles/dcircles.css';
 import './styles/builder.css';
+import './styles/bot-builder-mkorean.css';
 
 import { SYNTHETIC_MARKETS } from './data/markets';
 import { useDerivEngine } from './hooks/useDerivEngine';
@@ -20,7 +21,9 @@ import FooterBar from './components/FooterBar';
 
 export default function App() {
   const [activeNav, setActiveNav] = useState('dashboard');
+  const [selectedBot, setSelectedBot] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [transactions, setTransactions] = useState([]);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(0);
 
@@ -28,21 +31,41 @@ export default function App() {
   const execSpeed = speeds[speedIdx];
 
   const appendLog = useCallback((entry) => {
-    const item =
+    const time =
       typeof entry === 'string'
-        ? { time: new Date().toLocaleTimeString('en-GB', { hour12: false }), msg: entry }
-        : {
-            time: entry.time || new Date().toLocaleTimeString('en-GB', { hour12: false }),
-            msg: entry.msg || ''
-          };
-    setLogs((prev) => [item, ...prev.slice(0, 199)]);
+        ? new Date().toLocaleTimeString('en-GB', { hour12: false })
+        : entry.time || new Date().toLocaleTimeString('en-GB', { hour12: false });
+    const msg = typeof entry === 'string' ? entry : entry.msg || '';
+    const meta = typeof entry === 'object' ? entry : {};
+    setLogs((prev) => [{ time, msg, ...meta }, ...prev.slice(0, 299)]);
+  }, []);
+
+  const recordTransaction = useCallback((tx) => {
+    setTransactions((prev) => [
+      {
+        id: tx.id || `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        time: tx.time || new Date().toLocaleTimeString('en-GB', { hour12: false }),
+        botName: tx.botName || 'Bot Builder',
+        symbol: tx.symbol || 'R_100',
+        contractType: tx.contractType || 'DIGITUNDER',
+        barrier: tx.barrier ?? '',
+        stake: Number(tx.stake ?? 1),
+        payout: Number(tx.payout ?? 0),
+        profit: Number(tx.profit ?? 0),
+        won: Boolean(tx.won),
+        status: tx.status || (tx.won ? 'WON' : 'LOST')
+      },
+      ...prev.slice(0, 299)
+    ]);
   }, []);
 
   const handleTradeSettlement = useCallback(
     ({ symbol, profit, won, time }) => {
+      const pNum = Number(profit || 0);
       appendLog({
         time,
-        msg: `[SETTLED ${won ? 'WON' : 'LOST'}] ${symbol} -> ${profit >= 0 ? '+' : ''}${Number(profit).toFixed(2)}`
+        type: 'settlement',
+        msg: `[SETTLED ${won ? 'WON' : 'LOST'}] ${symbol} -> ${pNum >= 0 ? '+' : ''}${pNum.toFixed(2)}`
       });
     },
     [appendLog]
@@ -62,13 +85,43 @@ export default function App() {
         simulatedWon: trade.simulatedWon,
         botLabel: trade.botName
       });
+
+      const won = typeof res?.won === 'boolean' ? res.won : Boolean(trade.won ?? trade.simulatedWon);
+      const profit =
+        typeof res?.delta === 'number' && !Number.isNaN(res.delta)
+          ? Number(res.delta)
+          : won
+          ? Number((trade.amount * 0.85).toFixed(2))
+          : Number((-trade.amount).toFixed(2));
+      const payout = won ? Number((trade.amount + profit).toFixed(2)) : 0;
+
       appendLog({
         time: trade.time,
-        msg: res.summary || trade.msg
+        type: 'trade',
+        botName: trade.botName,
+        symbol: trade.symbol,
+        contractType: trade.contractType,
+        profit,
+        won,
+        msg: res?.summary || trade.msg
       });
-      return res;
+
+      recordTransaction({
+        time: trade.time,
+        botName: trade.botName,
+        symbol: trade.symbol,
+        contractType: trade.contractType,
+        barrier: trade.barrier,
+        stake: trade.amount,
+        payout,
+        profit,
+        won,
+        status: won ? 'WON' : 'LOST'
+      });
+
+      return { ...res, won, delta: profit };
     },
-    [deriv, appendLog]
+    [deriv, appendLog, recordTransaction]
   );
 
   const {
@@ -79,25 +132,39 @@ export default function App() {
     resetBotSession
   } = useIndependentBots(deriv.ticksByMarket, deriv.currency, handleBotTradeResult);
 
+  const openBotInBuilder = useCallback((botOrId) => {
+    const found =
+      typeof botOrId === 'object' && botOrId !== null
+        ? botOrId
+        : (xmlBots || []).find((b) => b.id === botOrId) || { id: botOrId, name: String(botOrId) };
+    setSelectedBot(found);
+    setActiveNav('bot-builder');
+  }, [xmlBots]);
+
   const activeBotsCount = useMemo(
     () => Object.values(botStates || {}).filter((b) => b.running).length,
     [botStates]
   );
 
-  const handleToggleMasterEngine = () => {
+  const handleToggleMasterEngine = useCallback(() => {
     if (activeBotsCount > 0) {
       Object.values(botStates).forEach((b) => {
         if (b.running) toggleBot(b.id);
       });
       appendLog('[Engine] Stopped all active bots.');
     } else {
-      const firstBot = xmlBots[0];
-      if (firstBot) {
-        toggleBot(firstBot.id);
-        appendLog(`[Engine] Started ${firstBot.name}.`);
+      const targetBot = selectedBot || xmlBots[0];
+      if (targetBot) {
+        toggleBot(targetBot.id);
+        appendLog(`[Engine] Started ${targetBot.name}.`);
       }
     }
-  };
+  }, [activeBotsCount, botStates, toggleBot, appendLog, selectedBot, xmlBots]);
+
+  const handleClearAllLogs = useCallback(() => {
+    setLogs([]);
+    setTransactions([]);
+  }, []);
 
   const renderMainView = () => {
     switch (activeNav) {
@@ -112,12 +179,25 @@ export default function App() {
       case 'bot-builder':
         return (
           <BotBuilder
+            selectedBot={selectedBot}
+            onSelectBot={setSelectedBot}
+            botStates={botStates}
+            xmlBots={xmlBots}
+            onToggleBot={toggleBot}
+            onUpdateBotConfig={updateBotConfig}
+            onResetBotSession={resetBotSession}
             logs={logs}
-            onClearLogs={() => setLogs([])}
+            transactions={transactions}
+            onClearLogs={handleClearAllLogs}
             onLogEvent={appendLog}
+            onRecordTransaction={recordTransaction}
+            onExecuteContract={deriv.executeContract}
             onNavigate={setActiveNav}
             ticksByMarket={deriv.ticksByMarket}
             currency={deriv.currency}
+            balance={deriv.balance}
+            execSpeed={execSpeed}
+            onCycleSpeed={() => setSpeedIdx((i) => (i + 1) % speeds.length)}
             isRunning={activeBotsCount > 0}
             onToggleRun={handleToggleMasterEngine}
           />
@@ -140,6 +220,7 @@ export default function App() {
                 xmlBots={xmlBots.filter((b) => b.tier === 'free')}
                 botStates={botStates}
                 onToggleBot={toggleBot}
+                onOpenInBuilder={openBotInBuilder}
                 onUpdateBotConfig={updateBotConfig}
                 onResetBotSession={resetBotSession}
                 currency={deriv.currency}
@@ -155,6 +236,7 @@ export default function App() {
             activeTab={activeNav}
             botStates={botStates}
             onToggleBot={toggleBot}
+            onOpenInBuilder={openBotInBuilder}
             onUpdateBotConfig={updateBotConfig}
             ticksByMarket={deriv.ticksByMarket}
             currency={deriv.currency}
@@ -201,6 +283,7 @@ export default function App() {
             activeNav={activeNav}
             ticksByMarket={deriv.ticksByMarket}
             onNavigate={setActiveNav}
+            onOpenBotInBuilder={openBotInBuilder}
             onLogEvent={appendLog}
           />
         );
@@ -274,7 +357,16 @@ export default function App() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {logs.map((item, i) => (
-                  <div key={i} style={{ fontSize: 12, padding: '8px 10px', background: '#F9FAFB', borderRadius: 6, border: '1px solid #E5E7EB' }}>
+                  <div
+                    key={i}
+                    style={{
+                      fontSize: 12,
+                      padding: '8px 10px',
+                      background: '#F9FAFB',
+                      borderRadius: 6,
+                      border: '1px solid #E5E7EB'
+                    }}
+                  >
                     <strong>[{item.time}]</strong> {item.msg}
                   </div>
                 ))}
@@ -285,6 +377,7 @@ export default function App() {
       )}
 
       <FooterBar
+        hideRunEngine={activeNav === 'bot-builder'}
         isRunning={activeBotsCount > 0}
         onToggleRun={handleToggleMasterEngine}
         execSpeed={execSpeed}

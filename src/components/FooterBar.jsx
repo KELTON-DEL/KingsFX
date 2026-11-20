@@ -1,35 +1,61 @@
-import React, { useEffect, useState } from 'react';
-import { NavIcon } from './Icons';
+import React from "react";
 
-export default function FooterBar({ isRunning, onToggleRun, execSpeed, onCycleSpeed }) {
-  const [gmtClock, setGmtClock] = useState('');
-  const [highContrast, setHighContrast] = useState(false);
-  const [locale, setLocale] = useState('EN');
+function PlayIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <polygon points="2,1.5 10.5,6 2,10.5" />
+    </svg>
+  );
+}
 
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10);
-      const timeStr = now.toUTCString().slice(17, 25);
-      setGmtClock(`${dateStr} ${timeStr} GMT`);
-    };
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, []);
+function StopIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <rect x="2" y="2" width="8" height="8" rx="1.2" />
+    </svg>
+  );
+}
 
-  const handleToggleContrast = () => {
-    const next = !highContrast;
-    setHighContrast(next);
-    document.body.style.filter = next ? 'contrast(1.08)' : '';
-  };
+function SunIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
 
-  const handleCycleLocale = () => {
-    setLocale((prev) => (prev === 'EN' ? 'SW' : 'EN'));
-  };
+function GlobeIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+}
 
-  const handleToggleFullscreen = () => {
-    if (typeof document === 'undefined') return;
+function FullscreenIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+/**
+ * FooterBar.jsx - Houses the single Run/Stop toggle button and animated
+ * "Contract bought" status bar that controls and reflects Bot Builder execution.
+ */
+export default function FooterBar({
+  isRunning = false,
+  onToggleRunStop,
+  contractBoughtActive = false,
+  activeStatusLabel = "Ready — click Run to start",
+  tickProgress = 0,
+  brandLabel = "© 2026 MkoreanWWN",
+  timestampText = "2026-11-20 21:54:00 GMT",
+}) {
+  const handleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen?.().catch(() => {});
     } else {
@@ -38,50 +64,44 @@ export default function FooterBar({ isRunning, onToggleRun, execSpeed, onCycleSp
   };
 
   return (
-    <footer className="kfx-footer">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <footer className="bb-footer" role="contentinfo">
+      <div className="bb-footer-left" />
+
+      <div className="bb-footer-center">
         <button
           type="button"
-          className={`kfx-run-btn ${isRunning ? 'is-running' : ''}`}
-          onClick={onToggleRun}
+          onClick={onToggleRunStop}
+          aria-pressed={isRunning}
+          aria-label={isRunning ? "Stop bot" : "Run bot"}
+          className={`bb-run-stop-btn ${isRunning ? "is-running" : "is-stopped"}`}
         >
-          {isRunning ? 'Stop Engine' : 'Run Engine'}
-        </button>
-
-        <button type="button" className="kfx-exec-pill" onClick={onCycleSpeed}>
-          <span>Execution</span>
-          <span style={{ color: '#34D399' }}>{execSpeed}</span>
+          {isRunning ? (
+            <>
+              <StopIcon />
+              <span>Stop</span>
+            </>
+          ) : (
+            <>
+              <PlayIcon />
+              <span>Run</span>
+            </>
+          )}
         </button>
       </div>
 
-      <div className="kfx-footer-right">
-        <span>(c) 2026 KingsFX</span>
-        <span className="kfx-status-dot" title="Deriv Feed Connected" />
-        <span>{gmtClock}</span>
-        <button
-          type="button"
-          onClick={handleToggleContrast}
-          title="Toggle Contrast"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}
-        >
-          <NavIcon name="sun" size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={handleCycleLocale}
-          title="Switch Language"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
-        >
-          <NavIcon name="globe" size={14} /> {locale}
-        </button>
-        <button
-          type="button"
-          onClick={handleToggleFullscreen}
-          title="Toggle Fullscreen"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}
-        >
-          <NavIcon name="expand" size={14} />
-        </button>
+      <div className="bb-footer-right">
+        <span>{brandLabel}</span>
+        <span className={`bb-status-dot ${isRunning ? "" : "paused"}`} title={isRunning ? "Running" : "Stopped"} />
+        <span>{timestampText}</span>
+        <span style={{ display: "inline-flex", cursor: "pointer" }} title="Theme">
+          <SunIcon />
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: 600 }}>
+          <GlobeIcon /> EN
+        </span>
+        <span style={{ display: "inline-flex", cursor: "pointer" }} title="Fullscreen" onClick={handleFullscreen}>
+          <FullscreenIcon />
+        </span>
       </div>
     </footer>
   );
