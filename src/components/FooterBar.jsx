@@ -3,6 +3,8 @@ import { NavIcon } from './Icons';
 
 export default function FooterBar({ isRunning, onToggleRun, execSpeed, onCycleSpeed }) {
   const [gmtClock, setGmtClock] = useState('');
+  const [highContrast, setHighContrast] = useState(false);
+  const [locale, setLocale] = useState('EN');
 
   useEffect(() => {
     const update = () => {
@@ -15,6 +17,25 @@ export default function FooterBar({ isRunning, onToggleRun, execSpeed, onCycleSp
     const t = setInterval(update, 1000);
     return () => clearInterval(t);
   }, []);
+
+  const handleToggleContrast = () => {
+    const next = !highContrast;
+    setHighContrast(next);
+    document.body.style.filter = next ? 'contrast(1.08)' : '';
+  };
+
+  const handleCycleLocale = () => {
+    setLocale((prev) => (prev === 'EN' ? 'SW' : 'EN'));
+  };
+
+  const handleToggleFullscreen = () => {
+    if (typeof document === 'undefined') return;
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
 
   return (
     <footer className="kfx-footer">
@@ -37,11 +58,30 @@ export default function FooterBar({ isRunning, onToggleRun, execSpeed, onCycleSp
         <span>(c) 2026 KingsFX</span>
         <span className="kfx-status-dot" title="Deriv Feed Connected" />
         <span>{gmtClock}</span>
-        <NavIcon name="sun" size={14} />
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <NavIcon name="globe" size={14} /> EN
-        </span>
-        <NavIcon name="expand" size={14} />
+        <button
+          type="button"
+          onClick={handleToggleContrast}
+          title="Toggle Contrast"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}
+        >
+          <NavIcon name="sun" size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={handleCycleLocale}
+          title="Switch Language"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
+        >
+          <NavIcon name="globe" size={14} /> {locale}
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleFullscreen}
+          title="Toggle Fullscreen"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}
+        >
+          <NavIcon name="expand" size={14} />
+        </button>
       </div>
     </footer>
   );

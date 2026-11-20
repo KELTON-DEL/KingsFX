@@ -2,19 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { BOT_CATALOG } from '../hooks/useIndependentBots';
 import { SYNTHETIC_MARKETS } from '../data/markets';
 
-const SCANNER_ROWS = [
-  { market: 'V25', entry: 'Over 1', recovery: 'Odd', conf: 95, digit: 0, badgeClass: 'kfx-eo-e' },
-  { market: 'V10', entry: 'Over 1', recovery: 'Odd', conf: 94, digit: 0, badgeClass: 'kfx-eo-o' },
-  { market: 'V100 (1s)', entry: 'Under 7', recovery: 'Even', conf: 92, digit: 7, badgeClass: 'kfx-eo-e' },
-  { market: 'V30 (1s)', entry: 'Over 2', recovery: 'Over 4', conf: 94, digit: 2, badgeClass: 'kfx-eo-e' },
-  { market: 'V100', entry: 'Under 7', recovery: 'Even', conf: 93, digit: 7, badgeClass: 'kfx-eo-o' },
-  { market: 'V15 (1s)', entry: 'Under 8', recovery: '—', conf: 83, digit: 9, badgeClass: 'kfx-eo-o' }
-];
-
 export default function PremiumBotsSuite({
   activeTab,
   botStates,
   onToggleBot,
+  onUpdateBotConfig,
   ticksByMarket,
   currency
 }) {
@@ -27,6 +19,12 @@ export default function PremiumBotsSuite({
   const [multiplier, setMultiplier] = useState(2);
   const [safeMode, setSafeMode] = useState(false);
 
+  const syncConfigToBots = (patch) => {
+    (BOT_CATALOG || []).forEach((b) => {
+      onUpdateBotConfig?.(b.id, patch);
+    });
+  };
+
   const visibleBots = useMemo(() => {
     if (seriesFilter === 'ALL') return BOT_CATALOG;
     return BOT_CATALOG.filter((b) => b.series === seriesFilter);
@@ -38,7 +36,7 @@ export default function PremiumBotsSuite({
     let losses = 0;
     let activeCount = 0;
     Object.values(botStates || {}).forEach((st) => {
-      pnl += st.pnl || 0;
+      pnl += st.pnl ?? st.netProfit ?? 0;
       wins += st.wins || 0;
       losses += st.losses || 0;
       if (st.running) activeCount += 1;
@@ -51,7 +49,30 @@ export default function PremiumBotsSuite({
     };
   }, [botStates]);
 
-  const smartBot = botStates['smart-recovery-ai'] || { running: false, phase: 'Idle' };
+  const scannerRows = useMemo(() => {
+    return SYNTHETIC_MARKETS.slice(0, 6).map((m) => {
+      const mTicks = (ticksByMarket?.[m.id] || []).slice(-60);
+      const total = mTicks.length || 1;
+      const evenCount = mTicks.filter((t) => t.digit % 2 === 0).length;
+      const evenPct = Math.round((evenCount / total) * 100);
+      const oddPct = 100 - evenPct;
+      const lowDigits = mTicks.filter((t) => t.digit <= 2).length;
+      const over1Prob = Math.min(96, Math.max(78, 82 + Math.round((lowDigits / total) * 45)));
+      const lastDigit = mTicks[mTicks.length - 1]?.digit ?? 0;
+
+      return {
+        id: m.id,
+        market: m.short,
+        entry: evenPct >= oddPct ? `Even (${evenPct}%)` : `Odd (${oddPct}%)`,
+        recovery: evenPct >= oddPct ? 'Odd' : 'Even',
+        conf: over1Prob,
+        digit: lastDigit,
+        badgeClass: lastDigit % 2 === 0 ? 'kfx-eo-e' : 'kfx-eo-o'
+      };
+    });
+  }, [ticksByMarket]);
+
+  const smartBot = botStates['xml-auto-bot-osam'] || { running: false, lastStatus: 'IDLE' };
   const sampleMarket = SYNTHETIC_MARKETS[4];
   const latestDigit = ticksByMarket[sampleMarket.id]?.slice(-1)[0]?.digit ?? 7;
 
@@ -90,17 +111,16 @@ export default function PremiumBotsSuite({
           </div>
         </div>
 
-        {/* Each Bot Runs on Its Own Independent Timer & Strategy */}
         <div className="kfx-bots-grid">
           {visibleBots.map((bot) => {
             const state = botStates[bot.id] || {
               running: false,
-              phase: 'Idle',
               wins: 0,
               losses: 0,
-              pnl: 0,
+              netProfit: 0,
               lastSignal: 'Ready'
             };
+            const botPnl = state.pnl ?? state.netProfit ?? 0;
 
             return (
               <div
@@ -109,25 +129,27 @@ export default function PremiumBotsSuite({
               >
                 <div>
                   <div className="kfx-bot-top">
-                    <span className="kfx-bot-icon" style={{ color: bot.accent }}>
-                      {bot.icon}
+                    <span className="kfx-bot-icon" style={{ color: bot.accent || '#F59E0B' }}>
+                      {bot.icon || '⚡'}
                     </span>
                     <span className="kfx-prem-badge">
-                      {state.running ? `● ${state.phase.toUpperCase()}` : 'PREMIUM'}
+                      {state.running ? `● ${(state.lastStatus || 'RUNNING').toUpperCase()}` : (bot.badge || 'PREMIUM')}
                     </span>
                   </div>
 
-                  <div className="kfx-bot-series">{bot.series}</div>
+                  <div className="kfx-bot-series">{bot.series || bot.category}</div>
                   <div className="kfx-bot-name">{bot.name}</div>
-                  <div className="kfx-bot-desc">{bot.desc}</div>
+                  <div className="kfx-bot-desc">{bot.desc || bot.description}</div>
 
-                  <div className="kfx-bot-tags">
-                    {bot.tags.map((tag) => (
-                      <span key={tag} className="kfx-bot-tag">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+                  {Array.isArray(bot.tags) && bot.tags.length > 0 && (
+                    <div className="kfx-bot-tags">
+                      {bot.tags.map((tag) => (
+                        <span key={tag} className="kfx-bot-tag">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   {state.running && (
                     <div style={{ marginTop: 12 }}>
@@ -146,8 +168,8 @@ export default function PremiumBotsSuite({
                       >
                         <span>{state.lastSignal}</span>
                         <span>
-                          {state.pnl >= 0 ? '+' : ''}
-                          {state.pnl.toFixed(2)} {currency}
+                          {botPnl >= 0 ? '+' : ''}
+                          {botPnl.toFixed(2)} {currency}
                         </span>
                       </div>
                     </div>
@@ -165,18 +187,28 @@ export default function PremiumBotsSuite({
                       fontWeight: 700
                     }}
                   >
-                    <span>W: {state.wins} · L: {state.losses}</span>
-                    <span>Every {(bot.intervalMs / 1000).toFixed(1)}s</span>
+                    <span>W: {state.wins || 0} · L: {state.losses || 0}</span>
+                    <span>Stake: {(state.currentStake ?? bot.defaultStake).toFixed(2)} {currency}</span>
                   </div>
 
                   <button
                     type="button"
                     className="kfx-bot-cta"
                     style={{
-                      background: state.running ? '#DC2626' : bot.accent,
-                      color: bot.accent === '#F59E0B' && !state.running ? '#111827' : '#FFFFFF'
+                      background: state.running ? '#DC2626' : (bot.accent || '#0D9488'),
+                      color: '#FFFFFF'
                     }}
-                    onClick={() => onToggleBot(bot.id)}
+                    onClick={() =>
+                      onToggleBot(bot.id, {
+                        baseStake: stake,
+                        takeProfit,
+                        stopLoss,
+                        duration: ticks,
+                        martingaleEnabled: martingaleOn,
+                        recoveryMultiplier: multiplier,
+                        safeMode
+                      })
+                    }
                   >
                     <span>{state.running ? 'Stop Bot' : 'Load & Run Bot'}</span>
                     <span>{state.running ? '■' : '→'}</span>
@@ -187,7 +219,6 @@ export default function PremiumBotsSuite({
           })}
         </div>
 
-        {/* Smart Recovery AI Control + Live Market Scanner */}
         <div className="kfx-light-workspace" style={{ borderRadius: 14 }}>
           <div className="kfx-smart-banner">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -214,7 +245,7 @@ export default function PremiumBotsSuite({
                   Smart Recovery AI
                 </div>
                 <div style={{ fontSize: 12, color: '#4B5563' }}>
-                  Pattern-led entries with automatic multi-market recovery.
+                  Live digit &amp; parity analysis with automated TP/SL and recovery scaling.
                 </div>
               </div>
             </div>
@@ -244,7 +275,7 @@ export default function PremiumBotsSuite({
                   fontWeight: 800
                 }}
               >
-                {smartBot.running ? `Engine: ${smartBot.phase}` : 'Engine: ready'}
+                {smartBot.running ? `Engine: ${smartBot.lastStatus || 'RUNNING'}` : 'Engine: ready'}
               </span>
             </div>
           </div>
@@ -299,24 +330,39 @@ export default function PremiumBotsSuite({
                   <input
                     type="number"
                     step="0.5"
+                    min="0.35"
                     value={stake}
-                    onChange={(e) => setStake(Number(e.target.value) || 1)}
+                    onChange={(e) => {
+                      const val = Math.max(0.35, Number(e.target.value) || 0.35);
+                      setStake(val);
+                      syncConfigToBots({ baseStake: val });
+                    }}
                   />
                 </div>
                 <div className="kfx-field">
                   <label>Take Profit</label>
                   <input
                     type="number"
+                    min="0.1"
                     value={takeProfit}
-                    onChange={(e) => setTakeProfit(Number(e.target.value) || 10)}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, Number(e.target.value) || 1);
+                      setTakeProfit(val);
+                      syncConfigToBots({ takeProfit: val });
+                    }}
                   />
                 </div>
                 <div className="kfx-field">
                   <label>Stop Loss</label>
                   <input
                     type="number"
+                    min="0.1"
                     value={stopLoss}
-                    onChange={(e) => setStopLoss(Number(e.target.value) || 20)}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, Number(e.target.value) || 1);
+                      setStopLoss(val);
+                      syncConfigToBots({ stopLoss: val });
+                    }}
                   />
                 </div>
                 <div className="kfx-field">
@@ -326,7 +372,11 @@ export default function PremiumBotsSuite({
                     min={1}
                     max={10}
                     value={ticks}
-                    onChange={(e) => setTicks(Number(e.target.value) || 1)}
+                    onChange={(e) => {
+                      const val = Math.max(1, Number(e.target.value) || 1);
+                      setTicks(val);
+                      syncConfigToBots({ duration: val });
+                    }}
                   />
                 </div>
               </div>
@@ -347,7 +397,10 @@ export default function PremiumBotsSuite({
                   <input
                     type="checkbox"
                     checked={martingaleOn}
-                    onChange={(e) => setMartingaleOn(e.target.checked)}
+                    onChange={(e) => {
+                      setMartingaleOn(e.target.checked);
+                      syncConfigToBots({ martingaleEnabled: e.target.checked });
+                    }}
                   />
                 </div>
                 {martingaleOn && (
@@ -356,8 +409,13 @@ export default function PremiumBotsSuite({
                     <input
                       type="number"
                       step="0.5"
+                      min="1"
                       value={multiplier}
-                      onChange={(e) => setMultiplier(Number(e.target.value) || 2)}
+                      onChange={(e) => {
+                        const val = Math.max(1, Number(e.target.value) || 1);
+                        setMultiplier(val);
+                        syncConfigToBots({ recoveryMultiplier: val });
+                      }}
                     />
                   </div>
                 )}
@@ -378,14 +436,27 @@ export default function PremiumBotsSuite({
                 <input
                   type="checkbox"
                   checked={safeMode}
-                  onChange={(e) => setSafeMode(e.target.checked)}
+                  onChange={(e) => {
+                    setSafeMode(e.target.checked);
+                    syncConfigToBots({ safeMode: e.target.checked });
+                  }}
                 />
               </label>
 
               <button
                 type="button"
                 className="kfx-btn-purple"
-                onClick={() => onToggleBot('smart-recovery-ai')}
+                onClick={() =>
+                  onToggleBot('xml-auto-bot-osam', {
+                    baseStake: stake,
+                    takeProfit,
+                    stopLoss,
+                    duration: ticks,
+                    martingaleEnabled: martingaleOn,
+                    recoveryMultiplier: multiplier,
+                    safeMode
+                  })
+                }
               >
                 {smartBot.running ? '■ Stop Smart AI' : '▶ Start AI'}
               </button>
@@ -402,7 +473,7 @@ export default function PremiumBotsSuite({
                   </div>
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#6B7280' }}>
-                  13 markets · Last digit: {latestDigit}
+                  {scannerRows.length} markets · Last digit: {latestDigit}
                 </span>
               </div>
 
@@ -410,17 +481,17 @@ export default function PremiumBotsSuite({
                 <thead>
                   <tr>
                     <th>Market</th>
-                    <th>Entry → Recovery</th>
+                    <th>Entry -&gt; Recovery</th>
                     <th>Conf</th>
                     <th>Digit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {SCANNER_ROWS.map((row) => (
-                    <tr key={row.market}>
+                  {scannerRows.map((row) => (
+                    <tr key={row.id}>
                       <td>● {row.market}</td>
                       <td>
-                        <span style={{ color: '#2563EB' }}>{row.entry}</span> →{' '}
+                        <span style={{ color: '#2563EB' }}>{row.entry}</span> -&gt;{' '}
                         <span style={{ color: '#D97706' }}>{row.recovery}</span>
                       </td>
                       <td style={{ color: row.conf >= 90 ? '#059669' : '#D97706' }}>

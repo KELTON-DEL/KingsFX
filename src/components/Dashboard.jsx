@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { BLOCK_GROUPS, SYNTHETIC_MARKETS } from '../data/markets';
 
-export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
+export default function Dashboard({ logs = [], onClearLogs = () => {} }) {
   const [search, setSearch] = useState('');
+  const [rightTab, setRightTab] = useState('summary');
   const [market, setMarket] = useState('Volatility 100 (1s) Index');
   const [tradeType, setTradeType] = useState('Up/Down > Rise/Fall');
   const [contractType, setContractType] = useState('Both');
@@ -14,14 +15,28 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
 
   const safeLogs = Array.isArray(logs) ? logs : [];
 
-  const filteredGroups = BLOCK_GROUPS.filter((g) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      g.title.toLowerCase().includes(q) ||
-      g.items.some((item) => item.toLowerCase().includes(q))
-    );
-  });
+  const filteredGroups = useMemo(() => {
+    return (BLOCK_GROUPS || []).filter((g) => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        g.title.toLowerCase().includes(q) ||
+        (g.items || []).some((item) => item.toLowerCase().includes(q))
+      );
+    });
+  }, [search]);
+
+  const visibleLogs = useMemo(() => {
+    if (rightTab === 'transactions') {
+      return safeLogs.filter((l) =>
+        /contract|won|lost|stake|buy|order|\+/i.test(l.msg || '')
+      );
+    }
+    if (rightTab === 'journal') {
+      return safeLogs;
+    }
+    return safeLogs.slice(0, 12);
+  }, [safeLogs, rightTab]);
 
   return (
     <section className="kfx-builder-shell">
@@ -32,6 +47,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
           onClick={() => {
             setMarket('Volatility 100 (1s) Index');
             setTradeType('Digits > Even/Odd');
+            setPurchaseDir('Even');
             setTicks(1);
             setStake(1);
           }}
@@ -42,7 +58,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
         <input
           type="text"
           className="kfx-search-input"
-          placeholder="🔍 Search"
+          placeholder="Search blocks..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -51,7 +67,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
           <div key={group.id}>
             <div className="kfx-menu-item">
               <span>{group.title}</span>
-              <span>{group.collapsible ? '⌄' : ''}</span>
+              <span>{group.collapsible ? 'v' : ''}</span>
             </div>
           </div>
         ))}
@@ -61,7 +77,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
         <div className="kfx-blocks-layout">
           <div>
             <div className="kfx-cblock">
-              <div className="kfx-cblock-title">📋 1. Trade parameters</div>
+              <div className="kfx-cblock-title">1. Trade parameters</div>
               <div className="kfx-cblock-body">
                 <div className="kfx-inline-row">
                   <span>Market:</span>
@@ -96,7 +112,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
                     className="kfx-vh-btn"
                     onClick={() => setVhEnabled((v) => !v)}
                   >
-                    🛡️ VH Settings
+                    VH Settings
                   </button>
                 </div>
 
@@ -172,7 +188,7 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
             </div>
 
             <div className="kfx-cblock">
-              <div className="kfx-cblock-title">🛒 2. Purchase conditions</div>
+              <div className="kfx-cblock-title">2. Purchase conditions</div>
               <div className="kfx-cblock-body">
                 <div className="kfx-inline-row">
                   <span>Purchase</span>
@@ -189,14 +205,14 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
 
           <div>
             <div className="kfx-cblock">
-              <div className="kfx-cblock-title">💼 3. Sell conditions</div>
+              <div className="kfx-cblock-title">3. Sell conditions</div>
               <div className="kfx-cblock-body">
                 <span>if Sell is available then</span>
               </div>
             </div>
 
             <div className="kfx-cblock">
-              <div className="kfx-cblock-title">🔁 4. Restart trading conditions</div>
+              <div className="kfx-cblock-title">4. Restart trading conditions</div>
               <div className="kfx-cblock-body">
                 <span>Trade again</span>
               </div>
@@ -208,22 +224,44 @@ export default function BotBuilder({ logs = [], onClearLogs = () => {} }) {
       <aside className="kfx-right-panel">
         <div>
           <div className="kfx-right-tabs">
-            <button type="button" className="kfx-right-tab is-active">
-              Summary
-            </button>
-            <button type="button" className="kfx-right-tab">
-              Transactions
-            </button>
-            <button type="button" className="kfx-right-tab">
-              Journal
-            </button>
+            {['summary', 'transactions', 'journal'].map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={`kfx-right-tab ${rightTab === tab ? 'is-active' : ''}`}
+                onClick={() => setRightTab(tab)}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
           </div>
-          <div className="kfx-empty-state">
-            <div style={{ fontSize: 24, marginBottom: 6 }}>🤖</div>
-            <div style={{ fontWeight: 700, color: '#4B5563' }}>
-              {safeLogs.length ? `${safeLogs.length} bot events recorded` : 'Ready to run strategy'}
+
+          {!visibleLogs.length ? (
+            <div className="kfx-empty-state">
+              <div style={{ fontWeight: 700, color: '#4B5563' }}>
+                {safeLogs.length ? `No ${rightTab} entries yet` : 'Ready to run strategy'}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
+              {visibleLogs.map((entry, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    fontSize: 11,
+                    padding: '7px 9px',
+                    borderRadius: 6,
+                    background: '#F9FAFB',
+                    border: '1px solid #E5E7EB',
+                    color: '#111827'
+                  }}
+                >
+                  <div>{entry.msg}</div>
+                  <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{entry.time}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="kfx-reset-wrap">

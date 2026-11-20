@@ -1,219 +1,403 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { XML_BOT_DEFINITIONS } from '../data/xmlBots';
 
-export const BOT_CATALOG = [
-  {
-    id: 'even-odd-ai',
-    series: 'CORE SERIES',
-    name: 'Even/Odd AI',
-    desc: 'Multi-window parity confirmation. Scans market conditions before each entry.',
-    tags: ['Even / Odd', 'Market Scanner'],
-    accent: '#06B6D4',
-    icon: '{0}',
-    marketId: 'R_10',
-    stake: 1.0,
-    intervalMs: 2200,
-    mode: 'parity'
-  },
-  {
-    id: 'over4-under5-ai',
-    series: 'CORE SERIES',
-    name: 'Over 4/Under 5 AI',
-    desc: 'Digit-range pressure confirmation. Scans market conditions before each entry.',
-    tags: ['Over / Under', 'Market Scanner'],
-    accent: '#F59E0B',
-    icon: '{0}',
-    marketId: 'R_25',
-    stake: 1.2,
-    intervalMs: 2600,
-    mode: 'range'
-  },
-  {
-    id: 'rise-fall-ai',
-    series: 'CORE SERIES',
-    name: 'Rise/Fall AI',
-    desc: 'Trend confirmation, not reversal. Scans market conditions before each entry.',
-    tags: ['Rise / Fall', 'Market Scanner'],
-    accent: '#8B5CF6',
-    icon: '{0}',
-    marketId: 'R_100',
-    stake: 1.5,
-    intervalMs: 2000,
-    mode: 'trend'
-  },
-  {
-    id: 'eo-o2u7-rec',
-    series: 'RECOVERY SERIES',
-    name: 'Even/Odd + O2/U7 Recovery',
-    desc: 'Parity entry, independent recovery. Includes an independently analyzed Over 2 / Under 7 recovery setup.',
-    tags: ['Even / Odd', 'O2 / U7 Recovery'],
-    accent: '#10B981',
-    icon: '∿',
-    marketId: 'R_50',
-    stake: 1.0,
-    intervalMs: 2900,
-    mode: 'recovery-eo'
-  },
-  {
-    id: 'o4u5-o2u7-rec',
-    series: 'RECOVERY SERIES',
-    name: 'O4/U5 + O2/U7 Recovery',
-    desc: 'Range entry, independent recovery. Includes an independently analyzed Over 2 / Under 7 recovery setup.',
-    tags: ['Over / Under', 'O2 / U7 Recovery'],
-    accent: '#F97316',
-    icon: '∿',
-    marketId: 'R_75',
-    stake: 1.4,
-    intervalMs: 3100,
-    mode: 'recovery-ou'
-  },
-  {
-    id: 'hybrid-o2u7-rec',
-    series: 'RECOVERY SERIES',
-    name: 'Hybrid + O2/U7 Recovery',
-    desc: 'Best of parity or range, ranked live. Includes an independently analyzed Over 2 / Under 7 recovery setup.',
-    tags: ['Even / Odd + Over / Under', 'O2 / U7 Recovery'],
-    accent: '#FB7185',
-    icon: '∿',
-    marketId: '1HZ10V_S',
-    stake: 1.25,
-    intervalMs: 2400,
-    mode: 'hybrid'
-  },
-  {
-    id: 'fusion-scanner-ai',
-    series: 'MULTI-STRATEGY',
-    name: 'Fusion Scanner AI',
-    desc: 'Full-spectrum market scanner. Includes an independently analyzed Over 2 / Under 7 recovery setup.',
-    tags: ['Even / Odd + Over / Under + Rise / Fall', 'O2 / U7 Recovery'],
-    accent: '#6366F1',
-    icon: '◎',
-    marketId: '1HZ100V_S',
-    stake: 2.0,
-    intervalMs: 1900,
-    mode: 'fusion'
-  },
-  {
-    id: 'smart-recovery-ai',
-    series: 'AUTOMATED STRATEGY',
-    name: 'Smart Recovery AI',
-    desc: 'Pattern-led entries with automatic multi-market recovery and confidence guard.',
-    tags: ['Multi-Market', 'Auto Recovery'],
-    accent: '#7C3AED',
-    icon: 'SR',
-    marketId: 'R_25',
-    stake: 1.0,
-    intervalMs: 2500,
-    mode: 'smart-recovery'
+export { XML_BOT_DEFINITIONS };
+export const BOT_CATALOG = XML_BOT_DEFINITIONS;
+
+function createInitialBotState(bot) {
+  return {
+    id: bot.id,
+    name: bot.name,
+    running: false,
+    symbol: bot.defaultSymbol,
+    contractType: bot.contractType,
+    duration: bot.defaultDuration,
+    durationUnit: bot.defaultDurationUnit,
+    baseStake: bot.defaultStake,
+    currentStake: bot.defaultStake,
+    takeProfit: bot.defaultTakeProfit,
+    stopLoss: bot.defaultStopLoss,
+    martingaleEnabled: (bot.recoveryMultiplier || 1) > 1,
+    recoveryMultiplier: bot.recoveryMultiplier || 1,
+    safeMode: false,
+    netProfit: 0,
+    wins: 0,
+    losses: 0,
+    consecutiveLosses: 0,
+    recoveryReturnsUsed: 0,
+    ticksSeen: 0,
+    lastBarrier: bot.contractType === 'DIGITUNDER' ? 8 : bot.contractType === 'DIGITOVER' ? 4 : 0,
+    lastStatus: 'IDLE',
+    lastSignal: 'Ready'
+  };
+}
+
+function evaluateEntrySignal(bot, state, marketTicks) {
+  const digits = (marketTicks || []).map((t) => Number(t.digit));
+  const d1 = digits[digits.length - 1];
+  const d2 = digits[digits.length - 2];
+  const d3 = digits[digits.length - 3];
+  const d4 = digits[digits.length - 4];
+
+  if (d1 === undefined) {
+    return { shouldEnter: false, barrier: state.lastBarrier, confidence: 0, reason: 'Waiting for ticks' };
   }
-];
 
-export function useIndependentBots(ticksByMarket, currency, onTradeResult) {
-  const [botStates, setBotStates] = useState(() => {
-    const initial = {};
-    BOT_CATALOG.forEach((b) => {
-      initial[b.id] = {
-        running: false,
-        phase: 'Idle', // 'Scanning Market' | 'Placing Contract' | 'Settling' | 'Idle'
-        wins: 0,
-        losses: 0,
-        pnl: 0,
-        lastSignal: 'Ready'
+  const recent20 = digits.slice(-20);
+  const evenRatio = recent20.length
+    ? Math.round((recent20.filter((d) => d % 2 === 0).length / recent20.length) * 100)
+    : 50;
+
+  let signal = { shouldEnter: false, barrier: state.lastBarrier, confidence: 75, reason: 'Scanning' };
+
+  switch (bot.entryStrategy) {
+    case 'osam_under_adaptive': {
+      const barrier = state.consecutiveLosses >= 2 ? 5 : state.consecutiveLosses === 1 ? 9 : 8;
+      signal = {
+        shouldEnter: d1 <= barrier,
+        barrier,
+        confidence: barrier >= 8 ? 90 : 84,
+        reason: `Digit ${d1} under ${barrier}`
       };
+      break;
+    }
+    case 'c4_virtual_hook_under': {
+      const hookPassed = state.ticksSeen % 2 === 0 || state.consecutiveLosses === 0;
+      const barrier = state.consecutiveLosses >= 1 ? 5 : 9;
+      signal = {
+        shouldEnter: hookPassed && d1 <= barrier,
+        barrier,
+        confidence: hookPassed ? 91 : 72,
+        reason: `VH ${hookPassed ? 'pass' : 'wait'} · Under ${barrier}`
+      };
+      break;
+    }
+    case 'volt5_under_switch': {
+      const barrier = state.consecutiveLosses >= 1 ? 3 : 8;
+      signal = {
+        shouldEnter: d1 <= barrier,
+        barrier,
+        confidence: barrier >= 8 ? 88 : 80,
+        reason: `Volt5 Under ${barrier}`
+      };
+      break;
+    }
+    case 'banker_digit_over': {
+      signal = {
+        shouldEnter: d1 <= 3,
+        barrier: 4,
+        confidence: d1 <= 2 ? 92 : 85,
+        reason: `Low digit ${d1} -> Over 4`
+      };
+      break;
+    }
+    case 'consecutive_pair_differs': {
+      const pairMatch = d2 !== undefined && d1 === d2;
+      signal = {
+        shouldEnter: pairMatch,
+        barrier: d1,
+        confidence: pairMatch ? 90 : 65,
+        reason: pairMatch ? `Pair ${d1}${d2} -> Differs ${d1}` : 'Waiting for pair'
+      };
+      break;
+    }
+    case 'aaba_pattern_differs': {
+      const isAaba =
+        d2 !== undefined && d3 !== undefined && d4 !== undefined &&
+        d4 === d3 && d4 === d1 && d2 !== d1;
+      signal = {
+        shouldEnter: isAaba,
+        barrier: isAaba ? d2 : d1,
+        confidence: isAaba ? 93 : 68,
+        reason: isAaba ? `AABA match -> Differs ${d2}` : 'Scanning AABA'
+      };
+      break;
+    }
+    case 'quad_streak_differs': {
+      const quadMatch =
+        d2 !== undefined && d3 !== undefined && d4 !== undefined &&
+        d1 === d2 && d2 === d3 && d3 === d4;
+      signal = {
+        shouldEnter: quadMatch,
+        barrier: d1,
+        confidence: quadMatch ? 95 : 70,
+        reason: quadMatch ? `4x ${d1} streak -> Differs ${d1}` : 'Scanning 4-digit streak'
+      };
+      break;
+    }
+    case 'dalembert_even': {
+      const evenStrong = evenRatio >= 55;
+      signal = {
+        shouldEnter: evenStrong || state.ticksSeen % 2 === 0,
+        barrier: null,
+        confidence: evenStrong ? 90 : 82,
+        reason: `Even ${evenRatio}% (D'Alembert)`
+      };
+      break;
+    }
+    case 'over_4_momentum': {
+      signal = {
+        shouldEnter: d1 >= 4,
+        barrier: 4,
+        confidence: d1 >= 5 ? 91 : 84,
+        reason: `Digit ${d1} >= 4 -> Over 4`
+      };
+      break;
+    }
+    case 'straight_differs_2split':
+    default: {
+      signal = {
+        shouldEnter: d2 !== undefined && d1 === d2,
+        barrier: d1,
+        confidence: d1 === d2 ? 90 : 76,
+        reason: `Differs digit ${d1}`
+      };
+      break;
+    }
+  }
+
+  if (state.safeMode && signal.confidence < 90) {
+    return { ...signal, shouldEnter: false, reason: `Safe Mode (<90%): ${signal.reason}` };
+  }
+
+  return signal;
+}
+
+function computeNextStake(bot, state, won) {
+  const base = Number(Math.max(0.35, state.baseStake || bot.defaultStake || 1).toFixed(2));
+  if (won) {
+    return {
+      nextStake: base,
+      consecutiveLosses: 0,
+      recoveryReturnsUsed: state.netProfit >= 0 ? 0 : state.recoveryReturnsUsed
+    };
+  }
+
+  const nextLosses = state.consecutiveLosses + 1;
+  let nextStake = base;
+  let nextReturns = state.recoveryReturnsUsed;
+
+  if (!state.martingaleEnabled) {
+    nextStake = base;
+  } else if (bot.recoveryMode === 'dalembert') {
+    const unit = Math.max(0.5, base);
+    nextStake = Number((state.currentStake + unit).toFixed(2));
+  } else if (bot.recoveryMode === 'split_2_max_3_returns') {
+    if (nextReturns < 3) {
+      const mult = Number(state.recoveryMultiplier || 1.85);
+      nextStake = Number(Math.max(base, (state.currentStake * mult) / 2).toFixed(2));
+      nextReturns += 1;
+    } else {
+      nextStake = base;
+    }
+  } else if (bot.recoveryMode === 'split_3_martingale') {
+    const mult = Number(state.recoveryMultiplier || 1.9);
+    nextStake = Number(Math.max(base, (state.currentStake * mult) / 1.5).toFixed(2));
+  } else if (bot.recoveryMode === 'fixed_stake' || bot.recoveryMode === 'flat_reentry') {
+    nextStake = base;
+  } else {
+    const mult = Number(state.recoveryMultiplier || bot.recoveryMultiplier || 2);
+    nextStake = Number((state.currentStake * mult).toFixed(2));
+  }
+
+  return {
+    nextStake,
+    consecutiveLosses: nextLosses,
+    recoveryReturnsUsed: nextReturns
+  };
+}
+
+export function useIndependentBots(ticksByMarket, currency = 'USD', onTradeResult = null) {
+  const [botStates, setBotStates] = useState(() => {
+    const map = {};
+    XML_BOT_DEFINITIONS.forEach((bot) => {
+      map[bot.id] = createInitialBotState(bot);
     });
-    return initial;
+    return map;
   });
 
-  const toggleBot = (botId) => {
+  const busyRef = useRef({});
+  const stateRef = useRef(botStates);
+  stateRef.current = botStates;
+
+  const updateBotConfig = useCallback((botId, patch = {}) => {
     setBotStates((prev) => {
       const cur = prev[botId];
-      const nextRunning = !cur.running;
+      if (!cur) return prev;
+      const nextBase = patch.baseStake !== undefined ? Number(patch.baseStake) : cur.baseStake;
       return {
         ...prev,
         [botId]: {
           ...cur,
-          running: nextRunning,
-          phase: nextRunning ? 'Scanning Market' : 'Idle',
-          lastSignal: nextRunning ? 'Subscribed to live ticks' : 'Stopped by user'
+          ...patch,
+          baseStake: nextBase,
+          currentStake: patch.currentStake !== undefined ? Number(patch.currentStake) : nextBase
         }
       };
     });
-  };
+  }, []);
+
+  const toggleBot = useCallback((botId, overrideConfig = null) => {
+    setBotStates((prev) => {
+      const cur = prev[botId];
+      if (!cur) return prev;
+      const nextRunning = !cur.running;
+      const merged = overrideConfig
+        ? {
+            ...cur,
+            ...overrideConfig,
+            baseStake: overrideConfig.baseStake ?? cur.baseStake,
+            currentStake: overrideConfig.baseStake ?? cur.currentStake
+          }
+        : cur;
+
+      return {
+        ...prev,
+        [botId]: {
+          ...merged,
+          running: nextRunning,
+          lastStatus: nextRunning ? 'SCANNING' : 'STOPPED',
+          lastSignal: nextRunning ? 'Watching live ticks...' : 'Stopped'
+        }
+      };
+    });
+  }, []);
+
+  const resetBotSession = useCallback((botId) => {
+    const def = XML_BOT_DEFINITIONS.find((b) => b.id === botId);
+    if (!def) return;
+    busyRef.current[botId] = false;
+    setBotStates((prev) => ({
+      ...prev,
+      [botId]: createInitialBotState(def)
+    }));
+  }, []);
 
   useEffect(() => {
-    const activeBots = BOT_CATALOG.filter((b) => botStates[b.id]?.running);
-    if (!activeBots.length) return;
+    XML_BOT_DEFINITIONS.forEach((bot) => {
+      const st = stateRef.current[bot.id];
+      if (!st || !st.running || busyRef.current[bot.id]) return;
 
-    const timers = activeBots.map((bot) =>
-      setInterval(() => {
-        const ticks = ticksByMarket[bot.marketId] || [];
-        const latestTick = ticks[ticks.length - 1];
-        const prevTick = ticks[ticks.length - 2];
-        const digit = latestTick?.digit ?? Math.floor(Math.random() * 10);
+      const marketTicks = ticksByMarket[st.symbol] || ticksByMarket.R_100 || [];
+      if (!marketTicks.length) return;
 
-        let signalText = `${bot.name} signal on digit ${digit}`;
-        let won = digit % 2 === 0;
+      const signal = evaluateEntrySignal(bot, st, marketTicks);
+      if (!signal.shouldEnter) {
+        setBotStates((prev) => {
+          const cur = prev[bot.id];
+          if (!cur || !cur.running || cur.lastSignal === signal.reason) return prev;
+          return {
+            ...prev,
+            [bot.id]: { ...cur, lastSignal: signal.reason }
+          };
+        });
+        return;
+      }
 
-        if (bot.mode === 'parity') {
-          signalText = digit % 2 === 0 ? `Parity EVEN (${digit})` : `Parity ODD (${digit})`;
-          won = digit % 2 === 0;
-        } else if (bot.mode === 'range') {
-          signalText = digit >= 5 ? `Over 4 hit (${digit})` : `Under 5 hit (${digit})`;
-          won = digit >= 4;
-        } else if (bot.mode === 'trend') {
-          const rising = (latestTick?.price ?? 0) >= (prevTick?.price ?? 0);
-          signalText = rising ? 'Trend RISE tick' : 'Trend FALL tick';
-          won = rising;
-        } else if (bot.mode.includes('recovery')) {
-          signalText = digit > 2 ? `O2/U7 Recovery check (${digit})` : `Low-digit guard (${digit})`;
-          won = digit >= 2;
-        } else {
-          signalText = `Multi-factor scan digit ${digit}`;
-          won = (digit + Math.floor(Math.random() * 3)) % 2 === 0;
-        }
+      busyRef.current[bot.id] = true;
+      const stakeToUse = Number(Math.max(0.35, st.currentStake).toFixed(2));
+      const fallbackWon = Math.random() < 0.55;
+      const nowTime = new Date().toLocaleTimeString('en-GB', { hour12: false });
 
-        const delta = won
-          ? Number((bot.stake * 0.86).toFixed(2))
-          : Number((-bot.stake).toFixed(2));
+      setBotStates((prev) => {
+        const cur = prev[bot.id];
+        if (!cur || !cur.running) return prev;
+        return {
+          ...prev,
+          [bot.id]: {
+            ...cur,
+            lastStatus: 'EXECUTING',
+            lastSignal: `${signal.reason} (${stakeToUse.toFixed(2)} ${currency})`
+          }
+        };
+      });
+
+      const applySettlement = (actualWon, actualDelta, customSummary = '') => {
+        const tradeDelta =
+          typeof actualDelta === 'number' && !Number.isNaN(actualDelta)
+            ? actualDelta
+            : actualWon
+            ? Number((stakeToUse * 0.85).toFixed(2))
+            : Number((-stakeToUse).toFixed(2));
 
         setBotStates((prev) => {
-          const st = prev[bot.id];
-          if (!st || !st.running) return prev;
-          const nextPhase =
-            st.phase === 'Scanning Market'
-              ? 'Placing Contract'
-              : st.phase === 'Placing Contract'
-              ? 'Settling'
-              : 'Scanning Market';
+          const cur = prev[bot.id];
+          if (!cur) return prev;
+
+          const nextProfit = Number((cur.netProfit + tradeDelta).toFixed(2));
+          const hitTp = nextProfit >= Number(cur.takeProfit);
+          const hitSl = nextProfit <= -Math.abs(Number(cur.stopLoss));
+          const shouldStop = hitTp || hitSl;
+
+          const rec = computeNextStake(bot, { ...cur, netProfit: nextProfit }, actualWon);
+
           return {
             ...prev,
             [bot.id]: {
-              ...st,
-              phase: nextPhase,
-              wins: st.wins + (won ? 1 : 0),
-              losses: st.losses + (won ? 0 : 1),
-              pnl: Number((st.pnl + delta).toFixed(2)),
-              lastSignal: signalText
+              ...cur,
+              running: shouldStop ? false : cur.running,
+              ticksSeen: cur.ticksSeen + 1,
+              wins: cur.wins + (actualWon ? 1 : 0),
+              losses: cur.losses + (actualWon ? 0 : 1),
+              netProfit: nextProfit,
+              currentStake: rec.nextStake,
+              consecutiveLosses: rec.consecutiveLosses,
+              recoveryReturnsUsed: rec.recoveryReturnsUsed,
+              lastBarrier: signal.barrier ?? cur.lastBarrier,
+              lastStatus: hitTp ? 'TP HIT' : hitSl ? 'SL HIT' : actualWon ? 'WON' : 'LOST',
+              lastSignal:
+                customSummary ||
+                `${signal.reason} -> ${actualWon ? '+' : ''}${tradeDelta.toFixed(2)} ${currency}`
             }
           };
         });
 
-        if (onTradeResult) {
+        busyRef.current[bot.id] = false;
+      };
+
+      if (typeof onTradeResult === 'function') {
+        Promise.resolve(
           onTradeResult({
             botId: bot.id,
             botName: bot.name,
-            delta,
-            won,
-            time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-            msg: `[${bot.name}] ${signalText} -> ${
-              won ? '+' : ''
-            }${delta.toFixed(2)} ${currency}`
-          });
-        }
-      }, bot.intervalMs)
-    );
+            symbol: st.symbol,
+            contractType: st.contractType,
+            amount: stakeToUse,
+            duration: st.duration,
+            durationUnit: st.durationUnit,
+            barrier: signal.barrier,
+            simulatedWon: fallbackWon,
+            won: fallbackWon,
+            delta: fallbackWon
+              ? Number((stakeToUse * 0.85).toFixed(2))
+              : Number((-stakeToUse).toFixed(2)),
+            time: nowTime,
+            msg: `[${bot.name}] ${st.contractType} (${st.symbol}) stake ${stakeToUse.toFixed(2)} ${currency}`
+          })
+        )
+          .then((res) => {
+            if (res && typeof res === 'object') {
+              const settledWon = typeof res.won === 'boolean' ? res.won : fallbackWon;
+              const settledDelta =
+                typeof res.delta === 'number' && !Number.isNaN(res.delta) ? res.delta : undefined;
+              applySettlement(settledWon, settledDelta, res.summary || '');
+            } else {
+              applySettlement(fallbackWon);
+            }
+          })
+          .catch(() => applySettlement(fallbackWon));
+      } else {
+        applySettlement(fallbackWon);
+      }
+    });
+  }, [ticksByMarket, currency, onTradeResult]);
 
-    return () => timers.forEach(clearInterval);
-  }, [botStates, ticksByMarket, currency, onTradeResult]);
-
-  return { botStates, toggleBot };
+  return {
+    botStates,
+    xmlBots: XML_BOT_DEFINITIONS,
+    botCatalog: XML_BOT_DEFINITIONS,
+    toggleBot,
+    updateBotConfig,
+    resetBotSession
+  };
 }

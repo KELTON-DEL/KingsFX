@@ -1,4 +1,4 @@
-export const DERIV_APP_ID = '350GDX0evoSaDtVVVL7rO';
+export const DERIV_APP_ID = '1089';
 export const DERIV_WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`;
 export const DERIV_OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}`;
 export const DERIV_PARTNER_SIGNUP_URL = 'https://track.deriv.com/_KMwae3caD3JZl7VyVw174GNd7ZgqdRLk/1/';
@@ -15,6 +15,39 @@ export const SYNTHETIC_MARKETS = [
   { id: 'R_100', symbol: 'R_100', label: 'Volatility 100 Index', short: 'VOL 100', base: 571.98, decimals: 2, delta: '-1.53%' },
   { id: 'R_25', symbol: 'R_25', label: 'Volatility 25 Index', short: 'VOL 25', base: 2896.364, decimals: 3, delta: '+0.18%' },
   { id: 'R_75', symbol: 'R_75', label: 'Volatility 75 Index', short: 'VOL 75', base: 37623.8915, decimals: 4, delta: '+0.89%' }
+];
+
+export const BLOCK_GROUPS = [
+  {
+    id: 'trade-params',
+    title: 'Trade parameters',
+    collapsible: true,
+    items: ['Market', 'Trade Type', 'Contract Type', 'Duration', 'Stake', 'Virtual Hook']
+  },
+  {
+    id: 'purchase-conds',
+    title: 'Purchase conditions',
+    collapsible: true,
+    items: ['Purchase Rise', 'Purchase Fall', 'Purchase Even', 'Purchase Odd', 'Purchase Over', 'Purchase Under']
+  },
+  {
+    id: 'sell-conds',
+    title: 'Sell conditions',
+    collapsible: true,
+    items: ['Sell is available', 'Sell at market']
+  },
+  {
+    id: 'restart-conds',
+    title: 'Restart trading conditions',
+    collapsible: true,
+    items: ['Trade again', 'Martingale stake', 'Stop on TP/SL']
+  },
+  {
+    id: 'digit-analysis',
+    title: 'Digit & Tick analysis',
+    collapsible: true,
+    items: ['Last Digit', 'Even / Odd streak', 'Over / Under barrier']
+  }
 ];
 
 export const NAV_ITEMS = [
